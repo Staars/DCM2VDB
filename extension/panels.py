@@ -54,41 +54,63 @@ class VIEW3D_PT_dicom_importer(Panel):
                 op = col.operator(IMPORT_OT_dicom_import_series.bl_idname, text="", icon='IMPORT')
                 op.series_index = i
             
-            # Step 3: Preview controls
+            # Step 3: Preview with embedded image viewer
             if scn.dicom_preview_slice_count > 0:
                 box = layout.box()
-                box.label(text="Preview Controls", icon='IMAGE_DATA')
+                box.label(text="3. Preview", icon='IMAGE_DATA')
                 
                 series_list = eval(scn.dicom_series_data)
                 if scn.dicom_preview_series_index < len(series_list):
                     series = series_list[scn.dicom_preview_series_index]
-                    box.label(text=f"Series: {series['description']}")
+                    box.label(text=f"{series['description']}")
                 
-                row = box.row()
-                row.label(text=f"Slice: {scn.dicom_preview_slice_index + 1} / {scn.dicom_preview_slice_count}")
-                
-                # Navigation buttons
-                row = box.row(align=True)
-                op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="First", icon='REW')
-                op.slice_index = 0
-                
-                op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="", icon='TRIA_LEFT')
-                op.slice_index = max(0, scn.dicom_preview_slice_index - 1)
-                
-                op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="", icon='TRIA_RIGHT')
-                op.slice_index = min(scn.dicom_preview_slice_count - 1, scn.dicom_preview_slice_index + 1)
-                
-                op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="Last", icon='FF')
-                op.slice_index = scn.dicom_preview_slice_count - 1
-                
-                # Quick jump buttons (every 10 slices)
-                if scn.dicom_preview_slice_count > 20:
+                # Image preview area
+                if "DICOM_Preview" in bpy.data.images:
+                    img = bpy.data.images["DICOM_Preview"]
+                    
+                    # Use icon_value to display the image
+                    # Get or create preview icon
+                    if not img.preview:
+                        img.preview_ensure()
+                    
+                    icon_id = img.preview.icon_id
+                    
+                    # Draw large icon button (non-clickable display)
+                    col = box.column()
+                    col.scale_y = 15  # Make it tall
+                    col.label(text="", icon_value=icon_id)
+                    
+                    # Slice info
+                    row = box.row()
+                    row.label(text=f"Slice: {scn.dicom_preview_slice_index + 1} / {scn.dicom_preview_slice_count}")
+                    
+                    # Navigation buttons
                     row = box.row(align=True)
-                    row.label(text="Jump to:")
-                    step = max(1, scn.dicom_preview_slice_count // 10)
-                    for idx in range(0, scn.dicom_preview_slice_count, step):
-                        op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text=str(idx+1))
-                        op.slice_index = idx
+                    op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="", icon='REW')
+                    op.slice_index = 0
+                    
+                    op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="", icon='TRIA_LEFT')
+                    op.slice_index = max(0, scn.dicom_preview_slice_index - 1)
+                    
+                    # Slice number indicator
+                    row.label(text=f"{scn.dicom_preview_slice_index + 1}")
+                    
+                    op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="", icon='TRIA_RIGHT')
+                    op.slice_index = min(scn.dicom_preview_slice_count - 1, scn.dicom_preview_slice_index + 1)
+                    
+                    op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="", icon='FF')
+                    op.slice_index = scn.dicom_preview_slice_count - 1
+                    
+                    # Quick jump buttons (every 10% of slices)
+                    if scn.dicom_preview_slice_count > 20:
+                        box.label(text="Quick Jump:")
+                        row = box.row(align=True)
+                        step = max(1, scn.dicom_preview_slice_count // 10)
+                        for idx in range(0, scn.dicom_preview_slice_count, step):
+                            op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text=str(idx+1))
+                            op.slice_index = idx
+                else:
+                    box.label(text="No preview loaded", icon='INFO')
 
 classes = (
     VIEW3D_PT_dicom_importer,

@@ -94,14 +94,10 @@ class IMPORT_OT_dicom_preview(Operator):
             self.report({'ERROR'}, f"Failed to load slice: {e}")
             return {'CANCELLED'}
         
-        # Try to switch to image editor
+        # Force UI redraw to show the preview in the panel
         for area in context.screen.areas:
             if area.type == 'VIEW_3D':
-                area.ui_type = 'IMAGE_EDITOR'
-                for space in area.spaces:
-                    if space.type == 'IMAGE_EDITOR':
-                        space.image = bpy.data.images.get("DICOM_Preview")
-                break
+                area.tag_redraw()
         
         self.report({'INFO'}, f"Loaded series with {len(series['files'])} slices")
         return {'FINISHED'}
