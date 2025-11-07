@@ -1,0 +1,11 @@
+schema_version = "1.0.0"
+id = "dicom_test"
+version = "1.0.0"
+name = "dicom_test"
+tagline = "just tests"
+maintainer = "Your Name <you@example.com>"
+type = "add-on"
+license = ["GPL-3.0-or-later"]
+
+# Blender version compatibility
+blender_version_min = "4.5.0"
