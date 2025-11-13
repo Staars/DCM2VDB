@@ -51,3 +51,15 @@ def load_and_display_slice(context, filepath, series):
     # Flatten and assign to image
     img.pixels[:] = rgba.ravel()
     img.update()
+    
+    # Force preview icon to regenerate
+    if img.preview:
+        # Clear the old preview to force regeneration
+        img.preview.image_size = (0, 0)
+    img.preview_ensure()
+    
+    # Mark areas for redraw
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()

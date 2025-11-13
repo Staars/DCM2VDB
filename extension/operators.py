@@ -9,6 +9,12 @@ from .dicom_io import PYDICOM_AVAILABLE, gather_dicom_files, organize_by_series,
 from .volume import create_volume
 from .preview import load_and_display_slice
 
+import numpy as np
+import os
+
+# Global storage for preview collections
+preview_collections = {}
+
 class IMPORT_OT_dicom_scan(Operator):
     """Scan folder for DICOM series"""
     bl_idname = "import.dicom_scan"
@@ -66,24 +72,23 @@ class IMPORT_OT_dicom_scan(Operator):
         return {'RUNNING_MODAL'}
 
 class IMPORT_OT_dicom_preview(Operator):
-    """Preview DICOM series in Image Editor"""
+    """Load DICOM series for Image Editor preview"""
     bl_idname = "import.dicom_preview"
     bl_label = "Preview Series"
     bl_options = {'REGISTER'}
     
-    series_index: IntProperty()
-
     def execute(self, context):
-        # Get series data
+        # Get series data from stored index
         series_list = eval(context.scene.dicom_series_data)
-        if self.series_index >= len(series_list):
+        series_idx = context.scene.dicom_preview_series_index
+        
+        if series_idx >= len(series_list):
             self.report({'ERROR'}, "Invalid series index")
             return {'CANCELLED'}
         
-        series = series_list[self.series_index]
+        series = series_list[series_idx]
         
         # Store preview info in scene
-        context.scene.dicom_preview_series_index = self.series_index
         context.scene.dicom_preview_slice_index = 0
         context.scene.dicom_preview_slice_count = len(series['files'])
         
@@ -94,12 +99,159 @@ class IMPORT_OT_dicom_preview(Operator):
             self.report({'ERROR'}, f"Failed to load slice: {e}")
             return {'CANCELLED'}
         
-        # Force UI redraw to show the preview in the panel
-        for area in context.screen.areas:
-            if area.type == 'VIEW_3D':
-                area.tag_redraw()
+        # Try to load in existing Image Editor (inline the code)
+        image_editor_found = False
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'IMAGE_EDITOR':
+                    for space in area.spaces:
+                        if space.type == 'IMAGE_EDITOR':
+                            space.image = bpy.data.images.get("DICOM_Preview")
+                            image_editor_found = True
+                            break
         
-        self.report({'INFO'}, f"Loaded series with {len(series['files'])} slices")
+        if image_editor_found:
+            self.report({'INFO'}, f"Preview loaded in Image Editor with {len(series['files'])} slices. Use mouse wheel to scroll.")
+        else:
+            self.report({'WARNING'}, f"Preview ready with {len(series['files'])} slices. Open an Image Editor to view.")
+        
+        return {'FINISHED'}
+
+class IMPORT_OT_dicom_preview_popup(Operator):
+    """Show DICOM preview matrix in popup menu"""
+    bl_idname = "import.dicom_preview_popup"
+    bl_label = "DICOM Series Preview"
+    bl_options = {'INTERNAL'}
+    
+    series_index: IntProperty()
+    
+    def execute(self, context):
+        return {'FINISHED'}
+    
+    def invoke(self, context, event):
+        global preview_collections
+        import bpy.utils.previews
+        from PIL import Image
+        import tempfile
+        
+        # Load preview images for matrix view
+        series_list = eval(context.scene.dicom_series_data)
+        if self.series_index >= len(series_list):
+            return {'CANCELLED'}
+        
+        series = series_list[self.series_index]
+        
+        # Store preview info
+        context.scene.dicom_preview_series_index = self.series_index
+        context.scene.dicom_preview_slice_count = len(series['files'])
+        
+        # Clear old preview collection
+        if "main" in preview_collections:
+            bpy.utils.previews.remove(preview_collections["main"])
+        
+        # Create new preview collection
+        pcoll = bpy.utils.previews.new()
+        
+        # Load up to 100 preview images (10x10 grid)
+        max_previews = 100
+        step = max(1, len(series['files']) // max_previews)
+        
+        for i, idx in enumerate(range(0, len(series['files']), step)):
+            if i >= max_previews:
+                break
+            
+            try:
+                slice_data = load_slice(series['files'][idx])
+                pixels = slice_data["pixels"]
+                
+                # Apply window/level
+                wc = series.get('window_center') or slice_data.get('window_center')
+                ww = series.get('window_width') or slice_data.get('window_width')
+                
+                if wc is not None and ww is not None and ww > 0:
+                    low = wc - ww / 2
+                    high = wc + ww / 2
+                    pixels_windowed = np.clip(pixels, low, high)
+                    normalized = ((pixels_windowed - low) / ww * 255).astype(np.uint8)
+                else:
+                    pmin, pmax = np.percentile(pixels, [1, 99])
+                    if pmax > pmin:
+                        normalized = np.clip((pixels - pmin) / (pmax - pmin) * 255, 0, 255).astype(np.uint8)
+                    else:
+                        normalized = np.zeros_like(pixels, dtype=np.uint8)
+                
+                # Save as temporary image
+                temp_path = os.path.join(tempfile.gettempdir(), f"dicom_preview_{i}.png")
+                img = Image.fromarray(normalized, mode='L')
+                img = img.resize((128, 128), Image.Resampling.LANCZOS)
+                img.save(temp_path)
+                
+                pcoll.load(f"slice_{i}", temp_path, 'IMAGE')
+            except Exception as e:
+                log(f"Failed to create preview {i}: {e}")
+        
+        preview_collections["main"] = pcoll
+        
+        # Show popup
+        return context.window_manager.invoke_popup(self, width=600)
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        # Show series info
+        series_list = eval(context.scene.dicom_series_data)
+        if context.scene.dicom_preview_series_index < len(series_list):
+            series = series_list[context.scene.dicom_preview_series_index]
+            row = layout.row()
+            row.label(text=f"{series['description']} - {series['instance_count']} slices", icon='IMAGE_DATA')
+            
+            # Button to open in Image Editor
+            row.operator(IMPORT_OT_dicom_preview.bl_idname, text="Open in Image Editor", icon='IMAGE')
+        
+        layout.separator()
+        
+        # Draw 10x10 grid of preview images
+        global preview_collections
+        if "main" in preview_collections:
+            pcoll = preview_collections["main"]
+            
+            # Create grid
+            grid = layout.grid_flow(row_major=True, columns=10, align=True)
+            
+            for i in range(100):
+                key = f"slice_{i}"
+                if key in pcoll:
+                    preview = pcoll[key]
+                    grid.template_icon(icon_value=preview.icon_id, scale=2.0)
+                else:
+                    break
+        else:
+            layout.label(text="No preview available", icon='ERROR')
+
+class IMPORT_OT_dicom_open_in_editor(Operator):
+    """Open DICOM preview in Image Editor"""
+    bl_idname = "import.dicom_open_in_editor"
+    bl_label = "Open in Image Editor"
+    bl_options = {'INTERNAL'}
+    
+    def execute(self, context):
+        # Only look for existing Image Editor areas, never switch automatically
+        image_editor_found = False
+        
+        for window in context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type == 'IMAGE_EDITOR':
+                    # Found one, set the image
+                    for space in area.spaces:
+                        if space.type == 'IMAGE_EDITOR':
+                            space.image = bpy.data.images.get("DICOM_Preview")
+                            image_editor_found = True
+                            self.report({'INFO'}, "Preview loaded in Image Editor")
+                            break
+        
+        if not image_editor_found:
+            self.report({'WARNING'}, "No Image Editor found. Please manually open an Image Editor area first.")
+        
         return {'FINISHED'}
 
 class IMPORT_OT_dicom_preview_slice(Operator):
@@ -163,6 +315,11 @@ class IMPORT_OT_dicom_import_series(Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     series_index: IntProperty()
+    debug_mode: bpy.props.BoolProperty(
+        name="Debug Mode",
+        description="Also create a test pyramid for comparison",
+        default=False
+    )
 
     def execute(self, context):
         series_list = eval(context.scene.dicom_series_data)
@@ -192,15 +349,100 @@ class IMPORT_OT_dicom_import_series(Operator):
         
         try:
             create_volume(slices)
+            
+            # Create debug pyramid if requested
+            if self.debug_mode or context.scene.dicom_debug_pyramid:
+                self.create_debug_pyramid(context)
+            
             self.report({'INFO'}, f"Imported {len(slices)} slices as volume")
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"Failed to create volume: {e}")
             return {'CANCELLED'}
+    
+    def create_debug_pyramid(self, context):
+        """Create a simple pyramid volume for debugging"""
+        import openvdb as vdb
+        import tempfile
+        
+        log("Creating debug pyramid...")
+        
+        # Create a 100x100x100 grid with pyramid shape
+        size = 100
+        pyramid = np.zeros((size, size, size), dtype=np.float32)
+        
+        for z in range(size):
+            # Pyramid gets narrower as we go up
+            width = int(size * (1.0 - z/size))
+            if width > 0:
+                center = size // 2
+                start = center - width // 2
+                end = center + width // 2
+                pyramid[z, start:end, start:end] = float(z) / size * 1000.0  # Gradient from 0 to 1000
+        
+        log(f"Pyramid value range: {pyramid.min():.1f} to {pyramid.max():.1f}")
+        
+        # Transpose to (x, y, z)
+        pyramid_transposed = np.transpose(pyramid, (2, 1, 0))
+        
+        # Create VDB
+        temp_vdb = os.path.join(tempfile.gettempdir(), "debug_pyramid.vdb")
+        grid = vdb.FloatGrid()
+        grid.copyFromArray(pyramid_transposed)
+        grid.name = "density"
+        
+        # 1mm voxels
+        transform_matrix = [
+            [1.0, 0, 0, 0],
+            [0, 1.0, 0, 0],
+            [0, 0, 1.0, 0],
+            [0, 0, 0, 1]
+        ]
+        grid.transform = vdb.createLinearTransform(transform_matrix)
+        vdb.write(temp_vdb, grids=[grid])
+        
+        # Import
+        bpy.ops.object.volume_import(filepath=temp_vdb, files=[{"name": "debug_pyramid.vdb"}])
+        pyramid_obj = context.active_object
+        pyramid_obj.name = "DEBUG_Pyramid"
+        pyramid_obj.location = (0.15, 0, 0)  # Offset to the right
+        
+        # Simple material
+        mat = bpy.data.materials.new("DEBUG_Pyramid_Material")
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        nodes.clear()
+        
+        out = nodes.new("ShaderNodeOutputMaterial")
+        prin = nodes.new("ShaderNodeVolumePrincipled")
+        vol_info = nodes.new("ShaderNodeVolumeInfo")
+        
+        # Simple ramp
+        ramp = nodes.new("ShaderNodeValToRGB")
+        ramp.color_ramp.elements[0].color = (0, 0, 0, 1)
+        ramp.color_ramp.elements[1].color = (1, 0, 0, 1)  # Red for visibility
+        
+        # Scale node
+        math = nodes.new("ShaderNodeMath")
+        math.operation = 'MULTIPLY'
+        math.inputs[1].default_value = 0.01
+        
+        mat.node_tree.links.new(vol_info.outputs["Density"], ramp.inputs["Fac"])
+        mat.node_tree.links.new(ramp.outputs["Color"], prin.inputs["Color"])
+        mat.node_tree.links.new(vol_info.outputs["Density"], math.inputs[0])
+        mat.node_tree.links.new(math.outputs["Value"], prin.inputs["Density"])
+        mat.node_tree.links.new(prin.outputs["Volume"], out.inputs["Volume"])
+        
+        pyramid_obj.data.materials.append(mat)
+        pyramid_obj.data.display.density = 0.01
+        
+        log("Debug pyramid created - should appear as red pyramid next to DICOM volume")
 
 classes = (
     IMPORT_OT_dicom_scan,
     IMPORT_OT_dicom_preview,
+    IMPORT_OT_dicom_preview_popup,
+    IMPORT_OT_dicom_open_in_editor,
     IMPORT_OT_dicom_preview_slice,
     IMAGE_OT_dicom_scroll,
     IMPORT_OT_dicom_import_series,
@@ -211,5 +453,11 @@ def register():
         bpy.utils.register_class(cls)
 
 def unregister():
+    # Clean up preview collections
+    global preview_collections
+    for pcoll in preview_collections.values():
+        bpy.utils.previews.remove(pcoll)
+    preview_collections.clear()
+    
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

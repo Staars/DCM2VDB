@@ -10,13 +10,63 @@ bl_info = {
 }
 
 import bpy
+import sys
+import os
+import subprocess
 
-# Check for pydicom availability
-try:
-    from pydicom import dcmread
-    PYDICOM_AVAILABLE = True
-except ImportError:
-    PYDICOM_AVAILABLE = False
+# Install bundled wheels if pydicom is not available
+def ensure_pydicom():
+    """Install pydicom from bundled wheel if not already available"""
+    try:
+        import pydicom
+        return True
+    except ImportError:
+        pass
+    
+    # Get the wheels directory path
+    addon_dir = os.path.dirname(os.path.abspath(__file__))
+    wheels_dir = os.path.join(addon_dir, "wheels")
+    
+    if not os.path.exists(wheels_dir):
+        print(f"[DICOM] Wheels directory not found: {wheels_dir}")
+        return False
+    
+    # Find the pydicom wheel
+    wheel_files = [f for f in os.listdir(wheels_dir) if f.startswith("pydicom") and f.endswith(".whl")]
+    
+    if not wheel_files:
+        print("[DICOM] No pydicom wheel found in wheels directory")
+        return False
+    
+    wheel_path = os.path.join(wheels_dir, wheel_files[0])
+    print(f"[DICOM] Installing pydicom from: {wheel_path}")
+    
+    # Use Blender's Python to install the wheel
+    python_exe = sys.executable
+    
+    try:
+        subprocess.check_call([python_exe, "-m", "pip", "install", "--no-deps", wheel_path])
+        print("[DICOM] Successfully installed pydicom")
+        
+        # Try importing again
+        import pydicom
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"[DICOM] Failed to install pydicom: {e}")
+        return False
+    except ImportError:
+        print("[DICOM] pydicom installed but import still failed")
+        return False
+
+# Install pydicom on module load
+PYDICOM_AVAILABLE = ensure_pydicom()
+
+# Check for pydicom availability after installation attempt
+if PYDICOM_AVAILABLE:
+    try:
+        from pydicom import dcmread
+    except ImportError:
+        PYDICOM_AVAILABLE = False
 
 if "bpy" in locals():
     import importlib

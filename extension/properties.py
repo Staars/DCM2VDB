@@ -1,7 +1,7 @@
 """Property definitions for DICOM importer"""
 
 import bpy
-from bpy.props import StringProperty, FloatProperty, IntProperty, CollectionProperty
+from bpy.props import StringProperty, FloatProperty, IntProperty, CollectionProperty, BoolProperty
 from bpy.types import PropertyGroup
 
 class DicomSeriesProperty(PropertyGroup):
@@ -33,6 +33,16 @@ def register_scene_props():
         min=0
     )
     bpy.types.Scene.dicom_preview_slice_count = IntProperty(default=0)
+    bpy.types.Scene.dicom_show_series_list = BoolProperty(
+        name="Show Series List",
+        default=True,
+        description="Expand/collapse series list"
+    )
+    bpy.types.Scene.dicom_debug_pyramid = BoolProperty(
+        name="Create Debug Pyramid",
+        default=False,
+        description="Create test pyramid with each import for comparison"
+    )
 
 def unregister_scene_props():
     """Unregister scene properties"""
@@ -42,6 +52,8 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_preview_series_index
     del bpy.types.Scene.dicom_preview_slice_index
     del bpy.types.Scene.dicom_preview_slice_count
+    del bpy.types.Scene.dicom_show_series_list
+    del bpy.types.Scene.dicom_debug_pyramid
 
 classes = (
     DicomSeriesProperty,
