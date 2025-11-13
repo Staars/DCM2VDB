@@ -55,7 +55,7 @@ class IMPORT_OT_dicom_scan(Operator):
             item.uid = series['uid']
             item.description = series['description']
             item.modality = series['modality']
-            item.number = series['number']
+            item.number = series['number'] if series['number'] is not None else 0
             item.instance_count = series['instance_count']
             item.rows = series['rows']
             item.cols = series['cols']

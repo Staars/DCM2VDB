@@ -97,9 +97,9 @@ def organize_by_series(file_paths):
         series['files'] = [p[0] for p in paired]
         series['slice_locations'] = sorted(series['slice_locations'])
     
-    # Convert to list and sort by series number
+    # Convert to list and sort by series number (handle None values)
     series_list = list(series_dict.values())
-    series_list.sort(key=lambda s: s['number'])
+    series_list.sort(key=lambda s: s['number'] if s['number'] is not None else 0)
     
     return series_list
 
