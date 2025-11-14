@@ -173,16 +173,16 @@ def create_volume(slices):
         
         # STEP 4: Fix the OpenVDB transform matrix
         # Our array is [Z, Y, X] order (slices, rows, columns)
-        # Create diagonal transform with correct spacing for each axis
+        # So the transform must match: [Z-spacing, Y-spacing, X-spacing]
         transform_matrix = [
-            [spacing_meters[0], 0, 0, 0],  # X-axis
-            [0, spacing_meters[1], 0, 0],  # Y-axis
-            [0, 0, spacing_meters[2], 0],  # Z-axis
+            [spacing_meters[2], 0, 0, 0],  # First array axis = Z (slice thickness)
+            [0, spacing_meters[1], 0, 0],  # Second array axis = Y (row spacing)
+            [0, 0, spacing_meters[0], 0],  # Third array axis = X (column spacing)
             [0, 0, 0, 1]
         ]
         grid.transform = vdb.createLinearTransform(transform_matrix)
         
-        log(f"Transform matrix diagonal (X, Y, Z) in meters: {[spacing_meters[0], spacing_meters[1], spacing_meters[2]]}")
+        log(f"Transform matrix diagonal (Z, Y, X) in meters: {[spacing_meters[2], spacing_meters[1], spacing_meters[0]]}")
         
         # Write VDB file
         vdb.write(temp_vdb, grids=[grid])
@@ -199,16 +199,28 @@ def create_volume(slices):
     vol_obj = bpy.context.active_object
     vol_obj.name = "CT_Volume"
     
-    # STEP 5: Validate imported volume dimensions
+    # STEP 5: Rotate volume to correct orientation
+    # Patient Z-axis (head-to-feet) should align with Blender Z-axis (up-down)
+    # Rotate 90° + 180° = 270° around Y-axis for proper anatomical orientation
+    import math
+    vol_obj.rotation_euler = (0, math.radians(270), 0)  # Rotate 270° around Y-axis (or -90°)
+    
     vol_obj.scale = (1.0, 1.0, 1.0)
     log(f"Imported volume scale: {vol_obj.scale}")
+    log(f"Imported volume rotation: {vol_obj.rotation_euler}")
     log(f"Imported volume dimensions: {vol_obj.dimensions}")
     
     expected_dims = (width * spacing_meters[0], height * spacing_meters[1], depth * spacing_meters[2])
     log(f"Expected dimensions (meters): {expected_dims}")
     
-    # Create material with proper CT visualization
+    # Create materials
     create_volume_material(vol_obj, vol_min, vol_max)
+    
+    log("Creating mesh material...")
+    create_mesh_material(vol_obj, vol_min, vol_max)
+    
+    log("Creating geometry nodes setup...")
+    create_volume_to_mesh_geonodes(vol_obj)
     
     log(f"Volume created with Hounsfield units preserved ({vol_min:.1f} to {vol_max:.1f})")
     log("=" * 60)
@@ -353,3 +365,166 @@ def create_volume_material(vol_obj, vol_min, vol_max):
     log(f"Material configured for HU range {vol_min:.0f} to {vol_max:.0f}")
     log(f"Air threshold: {threshold_hu:.0f} HU (everything below is transparent)")
     log(f"Soft tissue at ~{hu_to_pos(40):.2f}, Bone at ~{hu_to_pos(400):.2f}")
+
+def create_volume_to_mesh_geonodes(vol_obj):
+    """Create a Geometry Nodes modifier with Volume to Mesh setup"""
+    
+    try:
+        log("Creating Geometry Nodes modifier...")
+        
+        # Add geometry nodes modifier
+        mod = vol_obj.modifiers.new(name="VolumeToMesh", type='NODES')
+        
+        # Create new node group
+        node_group = bpy.data.node_groups.new(name="CT_VolumeToMesh", type='GeometryNodeTree')
+        mod.node_group = node_group
+        
+        # Create input/output nodes
+        nodes = node_group.nodes
+        links = node_group.links
+        
+        group_input = nodes.new('NodeGroupInput')
+        group_input.location = (-600, 0)
+        
+        group_output = nodes.new('NodeGroupOutput')
+        group_output.location = (600, 0)
+        
+        # Add Math node (Add) for threshold adjustment
+        math_add = nodes.new('ShaderNodeMath')
+        math_add.operation = 'ADD'
+        math_add.location = (-300, 0)
+        math_add.inputs[1].default_value = 1.0  # Add 1 by default
+        
+        # Add Volume to Mesh node
+        vol_to_mesh = nodes.new('GeometryNodeVolumeToMesh')
+        vol_to_mesh.location = (0, 0)
+        vol_to_mesh.resolution_mode = 'GRID'
+        
+        # Add Set Material node
+        set_material = nodes.new('GeometryNodeSetMaterial')
+        set_material.location = (300, 0)
+        
+        # Get the CT_Mesh_Material
+        mesh_material = bpy.data.materials.get("CT_Mesh_Material")
+        if mesh_material:
+            set_material.inputs['Material'].default_value = mesh_material
+        
+        # Create input sockets
+        node_group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+        node_group.interface.new_socket(name="Threshold", in_out='INPUT', socket_type='NodeSocketFloat')
+        node_group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+        
+        # Set default threshold value
+        mod["Input_2_attribute_name"] = "density"
+        mod["Input_2_use_attribute"] = 0
+        mod["Input_2"] = -200.0  # Default threshold value (HU)
+        
+        # Connect nodes
+        links.new(group_input.outputs[0], vol_to_mesh.inputs['Volume'])
+        links.new(group_input.outputs[1], math_add.inputs[0])
+        links.new(math_add.outputs[0], vol_to_mesh.inputs['Threshold'])
+        links.new(vol_to_mesh.outputs['Mesh'], set_material.inputs['Geometry'])
+        links.new(set_material.outputs['Geometry'], group_output.inputs[0])
+        
+        log("Created Geometry Nodes: Volume to Mesh with material (Threshold: -200 HU + 1)")
+        
+    except Exception as e:
+        log(f"ERROR creating Geometry Nodes: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def create_mesh_material(vol_obj, vol_min, vol_max):
+    """Create a surface material for the mesh with tissue-specific colors"""
+    mat = bpy.data.materials.new("CT_Mesh_Material")
+    mat.use_nodes = True
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    nodes.clear()
+    
+    # Output
+    out = nodes.new("ShaderNodeOutputMaterial")
+    out.location = (800, 0)
+    
+    # Principled BSDF
+    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.location = (500, 0)
+    
+    # Attribute node to read density
+    attr = nodes.new("ShaderNodeAttribute")
+    attr.location = (-600, 0)
+    attr.attribute_name = "density"
+    
+    # Map Range: Convert HU to 0-1
+    map_range = nodes.new("ShaderNodeMapRange")
+    map_range.location = (-400, 0)
+    map_range.inputs["From Min"].default_value = vol_min
+    map_range.inputs["From Max"].default_value = vol_max
+    map_range.clamp = True
+    
+    # Color Ramp for tissue colors
+    color_ramp = nodes.new("ShaderNodeValToRGB")
+    color_ramp.location = (-100, 100)
+    color_ramp.color_ramp.interpolation = 'LINEAR'
+    
+    # Setup color stops for different tissues
+    def hu_to_pos(hu):
+        return max(0.0, min(1.0, (hu - vol_min) / (vol_max - vol_min)))
+    
+    # Clear default stops and add tissue-specific colors
+    while len(color_ramp.color_ramp.elements) > 2:
+        color_ramp.color_ramp.elements.remove(color_ramp.color_ramp.elements[0])
+    
+    # Fat (-100 HU): yellowish
+    color_ramp.color_ramp.elements[0].position = hu_to_pos(-100)
+    color_ramp.color_ramp.elements[0].color = (0.9, 0.8, 0.4, 1.0)
+    
+    # Add more stops
+    color_ramp.color_ramp.elements.new(hu_to_pos(40))  # Muscle
+    color_ramp.color_ramp.elements.new(hu_to_pos(200))  # Bone start
+    color_ramp.color_ramp.elements.new(hu_to_pos(400))  # Dense bone
+    
+    # Muscle (40 HU): reddish
+    color_ramp.color_ramp.elements[1].color = (0.7, 0.3, 0.3, 1.0)
+    
+    # Bone start (200 HU): light grey-yellow
+    color_ramp.color_ramp.elements[2].color = (0.85, 0.82, 0.7, 1.0)
+    
+    # Dense bone (400+ HU): yellowish-grey
+    color_ramp.color_ramp.elements[3].color = (0.95, 0.92, 0.8, 1.0)
+    
+    # Alpha ramp for transparency based on density
+    alpha_ramp = nodes.new("ShaderNodeValToRGB")
+    alpha_ramp.location = (-100, -100)
+    alpha_ramp.color_ramp.interpolation = 'LINEAR'
+    
+    # Low density = transparent, high density = opaque
+    alpha_ramp.color_ramp.elements[0].position = 0.0
+    alpha_ramp.color_ramp.elements[0].color = (0, 0, 0, 1)
+    alpha_ramp.color_ramp.elements[1].position = 0.3
+    alpha_ramp.color_ramp.elements[1].color = (1, 1, 1, 1)
+    
+    # Separate RGB to get alpha
+    sep_rgb = nodes.new("ShaderNodeSeparateColor")
+    sep_rgb.location = (200, -100)
+    
+    # Connect nodes
+    links.new(attr.outputs["Fac"], map_range.inputs["Value"])
+    links.new(map_range.outputs["Result"], color_ramp.inputs["Fac"])
+    links.new(map_range.outputs["Result"], alpha_ramp.inputs["Fac"])
+    
+    links.new(color_ramp.outputs["Color"], bsdf.inputs["Base Color"])
+    links.new(alpha_ramp.outputs["Color"], sep_rgb.inputs["Color"])
+    links.new(sep_rgb.outputs["Red"], bsdf.inputs["Alpha"])
+    
+    # Subsurface scattering for skin
+    bsdf.inputs["Subsurface Weight"].default_value = 0.1
+    bsdf.inputs["Subsurface Radius"].default_value = (0.01, 0.005, 0.003)
+    
+    links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    
+    # Set blend mode to alpha blend
+    mat.blend_method = 'BLEND'
+    
+    log(f"Created mesh material with tissue colors (Fat: yellow, Muscle: red, Bone: grey-yellow)")
+    
+    return mat
