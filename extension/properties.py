@@ -43,6 +43,13 @@ def register_scene_props():
         default=False,
         description="Create test pyramid with each import for comparison"
     )
+    
+    # Patient data (JSON serialized)
+    bpy.types.Scene.dicom_patient_data = StringProperty(
+        name="DICOM Patient Data",
+        description="Serialized patient data (JSON)",
+        default=""
+    )
 
 def unregister_scene_props():
     """Unregister scene properties"""
@@ -53,6 +60,7 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_preview_slice_index
     del bpy.types.Scene.dicom_preview_slice_count
     del bpy.types.Scene.dicom_show_series_list
+    del bpy.types.Scene.dicom_patient_data
     del bpy.types.Scene.dicom_debug_pyramid
 
 classes = (

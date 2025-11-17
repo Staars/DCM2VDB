@@ -5,15 +5,71 @@ import os
 from bpy.props import StringProperty, IntProperty
 from bpy.types import Operator
 
-from .dicom_io import PYDICOM_AVAILABLE, gather_dicom_files, organize_by_series, load_slice, log
+from .dicom_io import PYDICOM_AVAILABLE, gather_dicom_files, organize_by_series, load_slice, log, load_patient_from_folder
 from .volume import create_volume
 from .preview import load_and_display_slice
+from .patient import Patient
 
 import numpy as np
 import os
 
 # Global storage for preview collections
 preview_collections = {}
+
+class IMPORT_OT_dicom_load_patient(Operator):
+    """Load patient data from DICOM folder (automatic)"""
+    bl_idname = "import.dicom_load_patient"
+    bl_label = "Load Patient"
+    bl_options = {'REGISTER'}
+    
+    directory: StringProperty(subtype="DIR_PATH")
+
+    def execute(self, context):
+        if not PYDICOM_AVAILABLE:
+            self.report({'ERROR'}, "pydicom not installed. Install with: pip install pydicom pillow")
+            return {'CANCELLED'}
+        
+        if not self.directory or not os.path.isdir(self.directory):
+            self.report({'ERROR'}, "Invalid folder")
+            return {'CANCELLED'}
+        
+        try:
+            # Load patient data (automatic - loads all primary series)
+            patient = load_patient_from_folder(self.directory)
+            
+            # Serialize and store in scene
+            context.scene.dicom_patient_data = patient.to_json()
+            
+            # Report summary
+            self.report({'INFO'}, 
+                f"Loaded patient: {patient.patient_name} ({patient.patient_id})")
+            self.report({'INFO'}, 
+                f"✓ {len(patient.series)} primary series (from {patient.primary_count} images)")
+            
+            if patient.secondary_count > 0:
+                self.report({'INFO'}, 
+                    f"ℹ Ignored {patient.secondary_count} secondary images")
+            
+            if patient.non_image_count > 0:
+                self.report({'INFO'}, 
+                    f"ℹ Ignored {patient.non_image_count} non-image files")
+            
+            # Log series details
+            log(f"Primary series loaded:")
+            for series in patient.series:
+                log(f"  - {series.series_description} ({series.modality}): {series.slice_count} slices")
+            
+            return {'FINISHED'}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to load patient: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'CANCELLED'}
+    
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 
 class IMPORT_OT_dicom_scan(Operator):
     """Scan folder for DICOM series"""
@@ -438,7 +494,136 @@ class IMPORT_OT_dicom_import_series(Operator):
         
         log("Debug pyramid created - should appear as red pyramid next to DICOM volume")
 
+class IMPORT_OT_dicom_visualize_series(Operator):
+    """Visualize a series from the loaded patient"""
+    bl_idname = "import.dicom_visualize_series"
+    bl_label = "Visualize Series"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    series_uid: StringProperty()
+    
+    def execute(self, context):
+        # Load patient from scene
+        if not context.scene.dicom_patient_data:
+            self.report({'ERROR'}, "No patient loaded")
+            return {'CANCELLED'}
+        
+        try:
+            patient = Patient.from_json(context.scene.dicom_patient_data)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to load patient data: {e}")
+            return {'CANCELLED'}
+        
+        # Find the series
+        series = patient.get_series_by_uid(self.series_uid)
+        if not series:
+            self.report({'ERROR'}, f"Series not found: {self.series_uid}")
+            return {'CANCELLED'}
+        
+        # Build absolute file paths
+        file_paths = []
+        for rel_path in series.file_paths:
+            abs_path = os.path.join(patient.dicom_root_path, rel_path)
+            file_paths.append(abs_path)
+        
+        # Load slices
+        wm = context.window_manager
+        wm.progress_begin(0, len(file_paths))
+        slices = []
+        
+        for i, path in enumerate(file_paths):
+            wm.progress_update(i)
+            try:
+                slices.append(load_slice(path))
+            except Exception as e:
+                log(f"Failed to load {path}: {e}")
+        
+        wm.progress_end()
+        
+        if len(slices) < 2:
+            self.report({'ERROR'}, "Need at least 2 valid slices")
+            return {'CANCELLED'}
+        
+        try:
+            # Create volume
+            vol_obj = create_volume(slices)
+            
+            # Update series state
+            series.is_loaded = True
+            series.is_visible = True
+            
+            # Store volume object reference
+            patient.volume_objects[self.series_uid] = vol_obj.name
+            
+            # Save updated patient data
+            context.scene.dicom_patient_data = patient.to_json()
+            
+            self.report({'INFO'}, f"Visualized: {series.series_description} ({len(slices)} slices)")
+            return {'FINISHED'}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to create volume: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'CANCELLED'}
+
+class IMPORT_OT_dicom_preview_series(Operator):
+    """Preview series in Image Editor (2D slice viewer)"""
+    bl_idname = "import.dicom_preview_series"
+    bl_label = "Preview in Image Editor"
+    bl_options = {'REGISTER'}
+    
+    series_uid: StringProperty()
+    
+    def execute(self, context):
+        # Load patient from scene
+        if not context.scene.dicom_patient_data:
+            self.report({'ERROR'}, "No patient loaded")
+            return {'CANCELLED'}
+        
+        try:
+            patient = Patient.from_json(context.scene.dicom_patient_data)
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to load patient data: {e}")
+            return {'CANCELLED'}
+        
+        # Find the series
+        series = patient.get_series_by_uid(self.series_uid)
+        if not series:
+            self.report({'ERROR'}, f"Series not found: {self.series_uid}")
+            return {'CANCELLED'}
+        
+        # Build absolute file paths
+        file_paths = []
+        for rel_path in series.file_paths:
+            abs_path = os.path.join(patient.dicom_root_path, rel_path)
+            file_paths.append(abs_path)
+        
+        # Store preview info in scene (for scrolling)
+        context.scene.dicom_preview_slice_index = 0
+        context.scene.dicom_preview_slice_count = len(file_paths)
+        
+        # Create a temporary series dict for compatibility with old preview system
+        series_dict = {
+            'files': file_paths,
+            'window_center': series.window_center,
+            'window_width': series.window_width,
+        }
+        
+        # Load first slice
+        try:
+            load_and_display_slice(context, file_paths[0], series_dict)
+            self.report({'INFO'}, f"Preview ready: {series.series_description} ({len(file_paths)} slices)")
+            self.report({'INFO'}, "Open an Image Editor to view. Use mouse wheel to scroll.")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to load preview: {e}")
+            return {'CANCELLED'}
+
 classes = (
+    IMPORT_OT_dicom_load_patient,
+    IMPORT_OT_dicom_visualize_series,
+    IMPORT_OT_dicom_preview_series,
     IMPORT_OT_dicom_scan,
     IMPORT_OT_dicom_preview,
     IMPORT_OT_dicom_preview_popup,
