@@ -55,7 +55,7 @@ class VIEW3D_PT_dicom_patient(Panel):
             layout.label(text=f"Error loading patient: {e}", icon='ERROR')
             return
         
-        # Patient info
+        # Patient info and actions
         box = layout.box()
         box.label(text=f"Patient: {patient.patient_name}", icon='USER')
         if patient.patient_id:
@@ -65,76 +65,130 @@ class VIEW3D_PT_dicom_patient(Panel):
         if patient.study_date:
             box.label(text=f"Date: {patient.study_date}")
         
-        # Load summary
-        box = layout.box()
         box.label(text=f"✓ {len(patient.series)} primary series", icon='CHECKMARK')
-        if patient.secondary_count > 0:
-            box.label(text=f"ℹ {patient.secondary_count} secondary ignored")
-        if patient.non_image_count > 0:
-            box.label(text=f"ℹ {patient.non_image_count} non-image ignored")
+        box.operator(IMPORT_OT_dicom_load_patient.bl_idname, text="Reload", icon='FILE_REFRESH')
         
-        # Actions
-        row = box.row(align=True)
-        row.operator(IMPORT_OT_dicom_load_patient.bl_idname, text="Reload", icon='FILE_REFRESH')
-        
-        # Series list grouped by FrameOfReferenceUID
+        # Series list (collapsible) - always visible
         layout.separator()
-        layout.label(text="Primary Series:", icon='RENDERLAYERS')
+        box = layout.box()
         
+        # Collapsible header
+        row = box.row()
+        row.prop(scn, "dicom_show_series_list",
+            icon="TRIA_DOWN" if scn.dicom_show_series_list else "TRIA_RIGHT",
+            icon_only=True, emboss=False
+        )
+        row.label(text=f"Primary Series ({len(patient.series)})", icon='RENDERLAYERS')
+        
+        # Only show series list if expanded
+        if scn.dicom_show_series_list:
+            groups = patient.get_series_by_frame_of_reference()
+            
+            for frame_uid, series_list in groups.items():
+                # Series in this frame (no frame header)
+                for series in series_list:
+                    # Series info: Modality: dimensions - Series: number
+                    series_info = f"{series.modality}: {series.cols}×{series.rows}×{series.slice_count} - Series: {series.series_number}"
+                    box.label(text=series_info)
+                    
+                    # Preview icons (5 per line)
+                    try:
+                        pcoll = get_preview_collection()
+                        icon_ids = generate_series_preview_icons(series, patient.dicom_root_path, pcoll)
+                        
+                        if icon_ids:
+                            icon_row = box.row(align=True)
+                            for icon_id in icon_ids:
+                                icon_row.template_icon(icon_value=icon_id, scale=1.5)
+                    except Exception as e:
+                        print(f"[DICOM Panel] Failed to generate preview icons: {e}")
+                    
+                    # Preview button (always available)
+                    action_row = box.row(align=True)
+                    op = action_row.operator(IMPORT_OT_dicom_preview_series.bl_idname, text="Preview", icon='IMAGE_DATA')
+                    op.series_uid = series.series_instance_uid
+                    
+                    box.separator()
+        
+        # Tool selection
+        layout.separator()
+        
+        if scn.dicom_active_tool == 'NONE':
+            # Show tool selector
+            box = layout.box()
+            box.label(text="Select Tool:", icon='TOOL_SETTINGS')
+            
+            # Visualization tool (available)
+            row = box.row()
+            row.scale_y = 1.5
+            op = row.operator("import.dicom_set_tool", text="Visualization", icon='SHADING_RENDERED')
+            op.tool = 'VISUALIZATION'
+            
+            # Future tools (disabled)
+            box.label(text="Coming Soon:", icon='TIME')
+            col = box.column(align=True)
+            col.enabled = False
+            col.operator("import.dicom_set_tool", text="Measurement", icon='DRIVER_DISTANCE')
+            col.operator("import.dicom_set_tool", text="Segmentation", icon='MOD_MASK')
+            col.operator("import.dicom_set_tool", text="Registration", icon='ORIENTATION_GIMBAL')
+            col.operator("import.dicom_set_tool", text="Export", icon='EXPORT')
+            col.operator("import.dicom_set_tool", text="Analysis", icon='GRAPH')
+        else:
+            # Show active tool and change button
+            box = layout.box()
+            row = box.row()
+            row.label(text=f"Tool: {scn.dicom_active_tool.title()}", icon='TOOL_SETTINGS')
+            op = row.operator("import.dicom_set_tool", text="Change", icon='LOOP_BACK')
+            op.tool = 'NONE'
+
+class VIEW3D_PT_dicom_visualization(Panel):
+    """Visualization tool panel"""
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "DICOM"
+    bl_label = "Visualization"
+    bl_parent_id = "VIEW3D_PT_dicom_patient"
+    bl_context = "objectmode"
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    @classmethod
+    def poll(cls, context):
+        return (context.scene.dicom_patient_data and 
+                context.scene.dicom_active_tool == 'VISUALIZATION')
+    
+    def draw(self, context):
+        layout = self.layout
+        scn = context.scene
+        
+        # Load patient data
+        try:
+            patient = Patient.from_json(scn.dicom_patient_data)
+        except Exception as e:
+            layout.label(text=f"Error: {e}", icon='ERROR')
+            return
+        
+        # Tool-specific actions for each series
         groups = patient.get_series_by_frame_of_reference()
         
         for frame_uid, series_list in groups.items():
             box = layout.box()
             
-            # Frame of reference header
+            # Frame of reference header (if not unknown)
             if frame_uid != "unknown":
                 box.label(text=f"Frame: ...{frame_uid[-8:]}", icon='EMPTY_AXIS')
-            else:
-                box.label(text="Frame: Unknown", icon='QUESTION')
             
-            # Series in this frame
+            # Series actions
             for series in series_list:
-                # Series header
                 row = box.row()
-                col = row.column()
-                col.label(text=f"{series.series_description} ({series.modality})")
-                col.label(text=f"  {series.cols}×{series.rows}×{series.slice_count}")
+                row.label(text=f"{series.series_description}")
                 
-                # Preview icons (5 per line)
-                try:
-                    pcoll = get_preview_collection()
-                    icon_ids = generate_series_preview_icons(series, patient.dicom_root_path, pcoll)
-                    
-                    print(f"[DICOM Panel] Generated {len(icon_ids)} icons for {series.series_description}")
-                    
-                    if icon_ids:
-                        icon_row = box.row(align=True)
-                        for icon_id in icon_ids:
-                            icon_row.template_icon(icon_value=icon_id, scale=1.5)
-                    else:
-                        box.label(text="No preview icons generated")
-                except Exception as e:
-                    print(f"[DICOM Panel] Failed to generate preview icons: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    box.label(text=f"Preview error: {e}")
-                
-                # Actions
-                action_row = box.row(align=True)
-                
-                # Always show Visualize button (can reload/switch volumes)
-                op = action_row.operator(IMPORT_OT_dicom_visualize_series.bl_idname, text="Visualize", icon='PLAY')
-                op.series_uid = series.series_instance_uid
-                
-                # Preview button
-                op = action_row.operator(IMPORT_OT_dicom_preview_series.bl_idname, text="Preview", icon='IMAGE_DATA')
+                # Visualize button (tool-specific action)
+                op = row.operator(IMPORT_OT_dicom_visualize_series.bl_idname, text="Visualize", icon='PLAY')
                 op.series_uid = series.series_instance_uid
                 
                 # Show loaded status
                 if series.is_loaded:
-                    action_row.label(text="✓", icon='CHECKMARK')
-                
-                box.separator()
+                    row.label(text="✓", icon='CHECKMARK')
 
 class IMAGE_EDITOR_PT_dicom_controls(Panel):
     """DICOM controls panel in Image Editor"""
@@ -191,6 +245,7 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
 
 classes = (
     VIEW3D_PT_dicom_patient,
+    VIEW3D_PT_dicom_visualization,
     IMAGE_EDITOR_PT_dicom_controls,
 )
 

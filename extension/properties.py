@@ -1,7 +1,7 @@
 """Property definitions for DICOM importer"""
 
 import bpy
-from bpy.props import StringProperty, FloatProperty, IntProperty, CollectionProperty, BoolProperty
+from bpy.props import StringProperty, FloatProperty, IntProperty, CollectionProperty, BoolProperty, EnumProperty
 from bpy.types import PropertyGroup
 
 class DicomSeriesProperty(PropertyGroup):
@@ -50,6 +50,22 @@ def register_scene_props():
         description="Serialized patient data (JSON)",
         default=""
     )
+    
+    # Active tool selection
+    bpy.types.Scene.dicom_active_tool = EnumProperty(
+        name="Active Tool",
+        description="Select which tool to use with the loaded patient data",
+        items=[
+            ('NONE', "None", "No tool selected", 'QUESTION', 0),
+            ('VISUALIZATION', "Visualization", "View and render volumes", 'SHADING_RENDERED', 1),
+            ('MEASUREMENT', "Measurement", "Measure distances, angles, volumes (Coming Soon)", 'DRIVER_DISTANCE', 2),
+            ('SEGMENTATION', "Segmentation", "Isolate anatomical structures (Coming Soon)", 'MOD_MASK', 3),
+            ('REGISTRATION', "Registration", "Align multiple scans (Coming Soon)", 'ORIENTATION_GIMBAL', 4),
+            ('EXPORT', "Export", "Export data and meshes (Coming Soon)", 'EXPORT', 5),
+            ('ANALYSIS', "Analysis", "Density analysis and statistics (Coming Soon)", 'GRAPH', 6),
+        ],
+        default='NONE'
+    )
 
 def unregister_scene_props():
     """Unregister scene properties"""
@@ -62,6 +78,7 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_show_series_list
     del bpy.types.Scene.dicom_patient_data
     del bpy.types.Scene.dicom_debug_pyramid
+    del bpy.types.Scene.dicom_active_tool
 
 classes = (
     DicomSeriesProperty,

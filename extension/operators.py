@@ -620,10 +620,24 @@ class IMPORT_OT_dicom_preview_series(Operator):
             self.report({'ERROR'}, f"Failed to load preview: {e}")
             return {'CANCELLED'}
 
+class IMPORT_OT_dicom_set_tool(Operator):
+    """Set the active DICOM tool"""
+    bl_idname = "import.dicom_set_tool"
+    bl_label = "Set Tool"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    tool: StringProperty()
+    
+    def execute(self, context):
+        context.scene.dicom_active_tool = self.tool
+        self.report({'INFO'}, f"Switched to {self.tool} tool")
+        return {'FINISHED'}
+
 classes = (
     IMPORT_OT_dicom_load_patient,
     IMPORT_OT_dicom_visualize_series,
     IMPORT_OT_dicom_preview_series,
+    IMPORT_OT_dicom_set_tool,
     IMPORT_OT_dicom_scan,
     IMPORT_OT_dicom_preview,
     IMPORT_OT_dicom_preview_popup,
