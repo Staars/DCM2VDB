@@ -65,7 +65,6 @@ class VIEW3D_PT_dicom_patient(Panel):
         if patient.study_date:
             box.label(text=f"Date: {patient.study_date}")
         
-        box.label(text=f"✓ {len(patient.series)} primary series", icon='CHECKMARK')
         box.operator(IMPORT_OT_dicom_load_patient.bl_idname, text="Reload", icon='FILE_REFRESH')
         
         # Series list (collapsible) - always visible
@@ -173,14 +172,10 @@ class VIEW3D_PT_dicom_visualization(Panel):
         for frame_uid, series_list in groups.items():
             box = layout.box()
             
-            # Frame of reference header (if not unknown)
-            if frame_uid != "unknown":
-                box.label(text=f"Frame: ...{frame_uid[-8:]}", icon='EMPTY_AXIS')
-            
-            # Series actions
+            # Series actions (no frame header)
             for series in series_list:
                 row = box.row()
-                row.label(text=f"{series.series_description}")
+                row.label(text=f"Series {series.series_number}")
                 
                 # Visualize button (tool-specific action)
                 op = row.operator(IMPORT_OT_dicom_visualize_series.bl_idname, text="Visualize", icon='PLAY')
@@ -201,17 +196,21 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
     def poll(cls, context):
         # Only show if DICOM preview is active
         return (context.scene.dicom_preview_slice_count > 0 and
-                "DICOM_Preview" in bpy.data.images and
-                context.space_data.image == bpy.data.images.get("DICOM_Preview"))
+                "DICOM_Preview" in bpy.data.images)
     
     def draw(self, context):
         layout = self.layout
         scn = context.scene
         
+        # Auto-select DICOM_Preview image if not already selected
+        dicom_img = bpy.data.images.get("DICOM_Preview")
+        if dicom_img and context.space_data.image != dicom_img:
+            context.space_data.image = dicom_img
+        
         series_list = eval(scn.dicom_series_data)
         if scn.dicom_preview_series_index < len(series_list):
             series = series_list[scn.dicom_preview_series_index]
-            layout.label(text=f"Series: {series['description']}", icon='IMAGE_DATA')
+            layout.label(text=f"Series: {series.get('description', 'No Description')}", icon='IMAGE_DATA')
         
         # Slice info
         box = layout.box()

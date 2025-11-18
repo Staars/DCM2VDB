@@ -150,12 +150,24 @@ def organize_by_series(file_paths):
     return series_list
 
 def load_slice(path):
-    """Load a single DICOM slice with proper calibration"""
-    ds = dcmread(path, force=True)
-    if not hasattr(ds, 'pixel_array'): 
-        raise ValueError("No pixel_array")
+    """
+    Load a single DICOM slice with proper calibration.
     
-    pixels = ds.pixel_array.astype(np.float32)
+    Returns:
+        dict with slice data, or None if slice cannot be loaded
+    """
+    try:
+        ds = dcmread(path, force=True)
+    except Exception as e:
+        log(f"Failed to read DICOM file {path}: {e}")
+        return None
+    
+    # Try to access pixel_array (may fail for compressed or incomplete files)
+    try:
+        pixels = ds.pixel_array.astype(np.float32)
+    except Exception as e:
+        log(f"No pixel data in {path}: {e}")
+        return None
     
     # Apply rescale slope and intercept to get Hounsfield units (for CT) or real values
     rescale_slope = float(getattr(ds, 'RescaleSlope', 1.0))

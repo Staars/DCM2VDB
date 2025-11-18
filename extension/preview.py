@@ -7,6 +7,10 @@ from .dicom_io import load_slice
 def load_and_display_slice(context, filepath, series):
     """Load a DICOM slice into Blender image for preview"""
     slice_data = load_slice(filepath)
+    if slice_data is None:
+        print(f"[DICOM Preview] Failed to load slice: {filepath}")
+        return False
+    
     pixels = slice_data["pixels"]
     
     # Apply window/level if available
@@ -51,6 +55,18 @@ def load_and_display_slice(context, filepath, series):
     # Flatten and assign to image
     img.pixels[:] = rgba.ravel()
     img.update()
+    
+    # Force update in all Image Editor areas
+    for window in bpy.context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type == 'IMAGE_EDITOR':
+                for space in area.spaces:
+                    if space.type == 'IMAGE_EDITOR':
+                        # Force refresh by reassigning the image
+                        if space.image == img:
+                            space.image = None
+                            space.image = img
+                area.tag_redraw()
     
     # Force preview icon to regenerate
     if img.preview:
@@ -112,6 +128,10 @@ def generate_series_preview_icons(series, dicom_root_path, preview_collection):
             
             # Load slice
             slice_data = load_slice(abs_path)
+            if slice_data is None:
+                print(f"[DICOM Preview] Skipping slice {i}: no pixel data")
+                continue
+            
             pixels = slice_data["pixels"]
             
             # Apply window/level

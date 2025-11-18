@@ -218,6 +218,8 @@ class IMPORT_OT_dicom_preview_popup(Operator):
             
             try:
                 slice_data = load_slice(series['files'][idx])
+                if slice_data is None:
+                    continue
                 pixels = slice_data["pixels"]
                 
                 # Apply window/level
@@ -392,10 +394,11 @@ class IMPORT_OT_dicom_import_series(Operator):
         
         for i, path in enumerate(series['files']):
             wm.progress_update(i)
-            try:
-                slices.append(load_slice(path))
-            except Exception as e:
-                log(f"Failed to load {path}: {e}")
+            slice_data = load_slice(path)
+            if slice_data is not None:
+                slices.append(slice_data)
+            else:
+                log(f"Skipped slice (no pixel data): {path}")
         
         wm.progress_end()
         
@@ -533,10 +536,11 @@ class IMPORT_OT_dicom_visualize_series(Operator):
         
         for i, path in enumerate(file_paths):
             wm.progress_update(i)
-            try:
-                slices.append(load_slice(path))
-            except Exception as e:
-                log(f"Failed to load {path}: {e}")
+            slice_data = load_slice(path)
+            if slice_data is not None:
+                slices.append(slice_data)
+            else:
+                log(f"Skipped slice (no pixel data): {path}")
         
         wm.progress_end()
         
@@ -599,20 +603,27 @@ class IMPORT_OT_dicom_preview_series(Operator):
             abs_path = os.path.join(patient.dicom_root_path, rel_path)
             file_paths.append(abs_path)
         
-        # Store preview info in scene (for scrolling)
+        # Clear old DICOM_Preview image to force fresh load
+        if "DICOM_Preview" in bpy.data.images:
+            bpy.data.images.remove(bpy.data.images["DICOM_Preview"])
+            log("Cleared old DICOM_Preview image")
+        
+        # Store preview info in scene (for scrolling and slice navigation)
         context.scene.dicom_preview_slice_index = 0
         context.scene.dicom_preview_slice_count = len(file_paths)
+        context.scene.dicom_preview_series_index = 0  # Always use index 0 for single series
         
-        # Create a temporary series dict for compatibility with old preview system
-        series_dict = {
+        # Store series data in old format for compatibility with preview_slice and scroll operators
+        series_list = [{
             'files': file_paths,
             'window_center': series.window_center,
             'window_width': series.window_width,
-        }
+        }]
+        context.scene.dicom_series_data = str(series_list)
         
         # Load first slice
         try:
-            load_and_display_slice(context, file_paths[0], series_dict)
+            load_and_display_slice(context, file_paths[0], series_list[0])
             self.report({'INFO'}, f"Preview ready: {series.series_description} ({len(file_paths)} slices)")
             self.report({'INFO'}, "Open an Image Editor to view. Use mouse wheel to scroll.")
             return {'FINISHED'}
