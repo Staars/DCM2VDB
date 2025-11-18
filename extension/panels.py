@@ -166,6 +166,39 @@ class VIEW3D_PT_dicom_visualization(Panel):
             layout.label(text=f"Error: {e}", icon='ERROR')
             return
         
+        # Global display mode toggle for all loaded volumes
+        loaded_volumes = [obj_name for obj_name in patient.volume_objects.values() 
+                         if bpy.data.objects.get(obj_name)]
+        
+        if loaded_volumes:
+            box = layout.box()
+            box.label(text="Display Mode (All Volumes):", icon='SCENE_DATA')
+            row = box.row(align=True)
+            row.scale_y = 1.2
+            
+            # Check current state of first volume
+            first_vol = bpy.data.objects.get(loaded_volumes[0])
+            if first_vol:
+                geonodes_mod = first_vol.modifiers.get("VolumeToMesh")
+                if geonodes_mod:
+                    is_mesh_mode = geonodes_mod.show_viewport
+                    
+                    # Volume mode button
+                    op = row.operator("import.dicom_toggle_display_mode", 
+                                    text="Volume", 
+                                    icon='VOLUME_DATA',
+                                    depress=not is_mesh_mode)
+                    op.mode = 'VOLUME'
+                    
+                    # Mesh mode button
+                    op = row.operator("import.dicom_toggle_display_mode", 
+                                    text="Mesh", 
+                                    icon='MESH_DATA',
+                                    depress=is_mesh_mode)
+                    op.mode = 'MESH'
+            
+            layout.separator()
+        
         # Tool-specific actions for each series
         groups = patient.get_series_by_frame_of_reference()
         
@@ -184,6 +217,22 @@ class VIEW3D_PT_dicom_visualization(Panel):
                 # Show loaded status
                 if series.is_loaded:
                     row.label(text="✓", icon='CHECKMARK')
+                    
+                    # If loaded, show volume/mesh toggle
+                    if series.series_instance_uid in patient.volume_objects:
+                        vol_obj_name = patient.volume_objects[series.series_instance_uid]
+                        vol_obj = bpy.data.objects.get(vol_obj_name)
+                        
+                        if vol_obj:
+                            geonodes_mod = vol_obj.modifiers.get("VolumeToMesh")
+                            if geonodes_mod:
+                                sub_row = box.row()
+                                sub_row.label(text="Display Mode:")
+                                mode_row = sub_row.row(align=True)
+                                mode_row.prop(geonodes_mod, "show_viewport", 
+                                            text="Volume" if not geonodes_mod.show_viewport else "Mesh",
+                                            toggle=True,
+                                            icon='VOLUME_DATA' if not geonodes_mod.show_viewport else 'MESH_DATA')
 
 class IMAGE_EDITOR_PT_dicom_controls(Panel):
     """DICOM controls panel in Image Editor"""

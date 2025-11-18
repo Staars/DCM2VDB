@@ -644,11 +644,51 @@ class IMPORT_OT_dicom_set_tool(Operator):
         self.report({'INFO'}, f"Switched to {self.tool} tool")
         return {'FINISHED'}
 
+class IMPORT_OT_dicom_toggle_display_mode(Operator):
+    """Toggle between volume and mesh display mode for all loaded volumes"""
+    bl_idname = "import.dicom_toggle_display_mode"
+    bl_label = "Toggle Display Mode"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    mode: StringProperty(default='VOLUME')  # 'VOLUME' or 'MESH'
+    
+    def execute(self, context):
+        if not context.scene.dicom_patient_data:
+            return {'CANCELLED'}
+        
+        try:
+            patient = Patient.from_json(context.scene.dicom_patient_data)
+        except:
+            return {'CANCELLED'}
+        
+        show_mesh = (self.mode == 'MESH')
+        count = 0
+        
+        for obj_name in patient.volume_objects.values():
+            vol_obj = bpy.data.objects.get(obj_name)
+            if vol_obj:
+                geonodes_mod = vol_obj.modifiers.get("VolumeToMesh")
+                if geonodes_mod:
+                    geonodes_mod.show_viewport = show_mesh
+                    geonodes_mod.show_render = show_mesh
+                    count += 1
+        
+        mode_name = "Mesh" if show_mesh else "Volume"
+        self.report({'INFO'}, f"Switched {count} volume(s) to {mode_name} mode")
+        
+        # Force viewport update
+        for area in context.screen.areas:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
+        
+        return {'FINISHED'}
+
 classes = (
     IMPORT_OT_dicom_load_patient,
     IMPORT_OT_dicom_visualize_series,
     IMPORT_OT_dicom_preview_series,
     IMPORT_OT_dicom_set_tool,
+    IMPORT_OT_dicom_toggle_display_mode,
     IMPORT_OT_dicom_scan,
     IMPORT_OT_dicom_preview,
     IMPORT_OT_dicom_preview_popup,

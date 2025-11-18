@@ -186,6 +186,13 @@ def create_volume(slices):
     log("Creating geometry nodes setup...")
     create_volume_to_mesh_geonodes(vol_obj)
     
+    # Set up dual-mode: volume by default, mesh on toggle
+    geonodes_mod = vol_obj.modifiers.get("VolumeToMesh")
+    if geonodes_mod:
+        geonodes_mod.show_viewport = False  # Start with volume visible
+        geonodes_mod.show_render = False    # Volume for render by default
+        log("Dual-mode enabled: Toggle geometry nodes modifier to switch volume/mesh")
+    
     log(f"Volume created with Hounsfield units preserved ({vol_min:.1f} to {vol_max:.1f})")
     log("=" * 60)
     
