@@ -78,6 +78,18 @@ if "bpy" in locals():
         importlib.reload(panels)
     if "dicom_io" in locals():
         importlib.reload(dicom_io)
+    if "constants" in locals():
+        importlib.reload(constants)
+    if "volume_utils" in locals():
+        importlib.reload(volume_utils)
+    if "node_builders" in locals():
+        importlib.reload(node_builders)
+    if "materials" in locals():
+        importlib.reload(materials)
+    if "geometry_nodes" in locals():
+        importlib.reload(geometry_nodes)
+    if "volume_creation" in locals():
+        importlib.reload(volume_creation)
     if "volume" in locals():
         importlib.reload(volume)
     if "preview" in locals():
