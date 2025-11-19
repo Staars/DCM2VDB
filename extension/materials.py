@@ -79,56 +79,6 @@ def create_volume_material(vol_obj, vol_min, vol_max):
     log(f"Air threshold: {HU_AIR_THRESHOLD:.0f} HU (everything below is transparent)")
 
 def create_mesh_material(vol_obj, vol_min, vol_max):
-    """Create a surface material for the mesh with tissue-specific colors"""
-    mat = bpy.data.materials.new("CT_Mesh_Material")
-    mat.use_nodes = True
-    nodes, links = mat.node_tree.nodes, mat.node_tree.links
-    nodes.clear()
-    
-    # Output
-    out = nodes.new("ShaderNodeOutputMaterial")
-    out.location = (800, 0)
-    
-    # Principled BSDF
-    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
-    bsdf.location = (500, 0)
-    
-    # Attribute node to read density
-    attr = nodes.new("ShaderNodeAttribute")
-    attr.location = (-600, 0)
-    attr.attribute_name = "density"
-    
-    # Map Range: Convert HU to 0-1
-    map_range = build_hu_mapper(nodes, links, vol_min, vol_max, location=(-400, 0))
-    
-    # Color ramp for tissue colors
-    color_ramp = build_mesh_color_ramp(nodes, vol_min, vol_max, location=(-100, 100))
-    
-    # Alpha ramp for transparency
-    alpha_ramp = build_alpha_ramp(nodes, location=(-100, -100))
-    
-    # Separate RGB to get alpha
-    sep_rgb = nodes.new("ShaderNodeSeparateColor")
-    sep_rgb.location = (200, -100)
-    
-    # Connect nodes
-    links.new(attr.outputs["Fac"], map_range.inputs["Value"])
-    links.new(map_range.outputs["Result"], color_ramp.inputs["Fac"])
-    links.new(map_range.outputs["Result"], alpha_ramp.inputs["Fac"])
-    
-    links.new(color_ramp.outputs["Color"], bsdf.inputs["Base Color"])
-    links.new(alpha_ramp.outputs["Color"], sep_rgb.inputs["Color"])
-    links.new(sep_rgb.outputs["Red"], bsdf.inputs["Alpha"])
-    
-    # Subsurface scattering for skin
-    bsdf.inputs["Subsurface Weight"].default_value = SUBSURFACE_WEIGHT
-    bsdf.inputs["Subsurface Radius"].default_value = SUBSURFACE_RADIUS
-    
-    links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
-    
-    # Set blend mode to alpha blend
-    mat.blend_method = 'BLEND'
-    
-    log(f"Created mesh material with tissue colors")
-    
-    return mat
+    """TODO: Reimplement mesh material for tissue-specific visualization"""
+    log("Mesh material creation - placeholder (to be reimplemented)")
+    pass

@@ -117,10 +117,16 @@ class VIEW3D_PT_dicom_patient(Panel):
             box = layout.box()
             box.label(text="Select Tool:", icon='TOOL_SETTINGS')
             
+            # Detect modality from loaded series
+            modality = "CT"  # default
+            if patient.series:
+                modality = patient.series[0].modality or "CT"
+            
             # Visualization tool (available)
             row = box.row()
             row.scale_y = 1.5
-            op = row.operator("import.dicom_set_tool", text="Visualization", icon='SHADING_RENDERED')
+            button_text = f"Visualization {modality}"
+            op = row.operator("import.dicom_set_tool", text=button_text, icon='SHADING_RENDERED')
             op.tool = 'VISUALIZATION'
             
             # Future tools (disabled)
