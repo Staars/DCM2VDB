@@ -4,6 +4,7 @@ import bpy
 from bpy.types import Panel
 from pathlib import Path
 
+import os
 from .operators import (
     IMPORT_OT_dicom_load_patient,
     IMPORT_OT_dicom_visualize_series,
@@ -86,9 +87,21 @@ class VIEW3D_PT_dicom_patient(Panel):
             for frame_uid, series_list in groups.items():
                 # Series in this frame (no frame header)
                 for series in series_list:
+                    # Series header with checkbox
+                    header_row = box.row(align=True)
+                    
+                    # Selection checkbox
+                    op = header_row.operator(
+                        "import.dicom_toggle_series_selection",
+                        text="",
+                        icon='CHECKBOX_HLT' if series.is_selected else 'CHECKBOX_DEHLT',
+                        emboss=False
+                    )
+                    op.series_uid = series.series_instance_uid
+                    
                     # Series info: Modality: dimensions - Series: number
                     series_info = f"{series.modality}: {series.cols}×{series.rows}×{series.slice_count} - Series: {series.series_number}"
-                    box.label(text=series_info)
+                    header_row.label(text=series_info)
                     
                     # Preview icons (5 per line)
                     try:
@@ -178,41 +191,34 @@ class VIEW3D_PT_dicom_visualization(Panel):
         
         if loaded_volumes:
             box = layout.box()
-            box.label(text="Display Mode (All Volumes):", icon='SCENE_DATA')
-            row = box.row(align=True)
-            row.scale_y = 1.2
+            box.label(text="Display Mode:", icon='SCENE_DATA')
             
-            # Check current state of first volume
-            first_vol = bpy.data.objects.get(loaded_volumes[0])
-            if first_vol:
-                geonodes_mod = first_vol.modifiers.get("VolumeToMesh")
-                if geonodes_mod:
-                    is_mesh_mode = geonodes_mod.show_viewport
-                    
-                    # Volume mode button
-                    op = row.operator("import.dicom_toggle_display_mode", 
-                                    text="Volume", 
-                                    icon='VOLUME_DATA',
-                                    depress=not is_mesh_mode)
-                    op.mode = 'VOLUME'
-                    
-                    # Mesh mode button
-                    op = row.operator("import.dicom_toggle_display_mode", 
-                                    text="Mesh", 
-                                    icon='MESH_DATA',
-                                    depress=is_mesh_mode)
-                    op.mode = 'MESH'
+            # Volume visibility checkbox
+            row = box.row()
+            row.scale_y = 1.2
+            row.prop(scn, "dicom_show_volume", text="Volume", icon='VOLUME_DATA', toggle=True)
+            
+            # Bone visibility checkbox
+            row = box.row()
+            row.scale_y = 1.2
+            row.prop(scn, "dicom_show_bone", text="Bone", icon='MESH_DATA', toggle=True)
             
             layout.separator()
         
-        # Tool-specific actions for each series
+        # Tool-specific actions for each series (ONLY SELECTED SERIES)
         groups = patient.get_series_by_frame_of_reference()
         
         for frame_uid, series_list in groups.items():
+            # Filter to only selected series
+            selected_series = [s for s in series_list if s.is_selected]
+            
+            if not selected_series:
+                continue  # Skip this frame if no selected series
+            
             box = layout.box()
             
             # Series actions (no frame header)
-            for series in series_list:
+            for series in selected_series:
                 row = box.row()
                 row.label(text=f"Series {series.series_number}")
                 
@@ -220,25 +226,28 @@ class VIEW3D_PT_dicom_visualization(Panel):
                 op = row.operator(IMPORT_OT_dicom_visualize_series.bl_idname, text="Visualize", icon='PLAY')
                 op.series_uid = series.series_instance_uid
                 
-                # Show loaded status
+                # Show measurements if loaded
                 if series.is_loaded:
-                    row.label(text="✓", icon='CHECKMARK')
-                    
-                    # If loaded, show volume/mesh toggle
-                    if series.series_instance_uid in patient.volume_objects:
-                        vol_obj_name = patient.volume_objects[series.series_instance_uid]
-                        vol_obj = bpy.data.objects.get(vol_obj_name)
+                    # Show volume measurements
+                    if scn.dicom_volume_data_path and os.path.exists(scn.dicom_volume_data_path):
+                        col = box.column(align=True)
+                        col.separator()
+                        col.label(text="Tissue Volumes:", icon='GRAPH')
                         
-                        if vol_obj:
-                            geonodes_mod = vol_obj.modifiers.get("VolumeToMesh")
-                            if geonodes_mod:
-                                sub_row = box.row()
-                                sub_row.label(text="Display Mode:")
-                                mode_row = sub_row.row(align=True)
-                                mode_row.prop(geonodes_mod, "show_viewport", 
-                                            text="Volume" if not geonodes_mod.show_viewport else "Mesh",
-                                            toggle=True,
-                                            icon='VOLUME_DATA' if not geonodes_mod.show_viewport else 'MESH_DATA')
+                        # Fat
+                        if scn.dicom_fat_volume_ml > 0:
+                            row = col.row()
+                            row.label(text=f"  Fat: {scn.dicom_fat_volume_ml:.2f} mL")
+                        
+                        # Fluid
+                        if scn.dicom_fluid_volume_ml > 0:
+                            row = col.row()
+                            row.label(text=f"  Fluid: {scn.dicom_fluid_volume_ml:.2f} mL")
+                        
+                        # Soft tissue
+                        if scn.dicom_soft_volume_ml > 0:
+                            row = col.row()
+                            row.label(text=f"  Soft Tissue: {scn.dicom_soft_volume_ml:.2f} mL")
 
 class IMAGE_EDITOR_PT_dicom_controls(Panel):
     """DICOM controls panel in Image Editor"""

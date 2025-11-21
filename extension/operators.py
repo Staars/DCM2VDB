@@ -34,6 +34,9 @@ class IMPORT_OT_dicom_load_patient(Operator):
             return {'CANCELLED'}
         
         try:
+            # COMPLETE CLEANUP before loading new patient
+            self._cleanup_all(context)
+            
             # Load patient data (automatic - loads all primary series)
             patient = load_patient_from_folder(self.directory)
             
@@ -66,6 +69,66 @@ class IMPORT_OT_dicom_load_patient(Operator):
             import traceback
             traceback.print_exc()
             return {'CANCELLED'}
+    
+    def _cleanup_all(self, context):
+        """Complete cleanup: remove all DICOM objects, materials, images, and reset properties"""
+        log("=" * 60)
+        log("COMPLETE CLEANUP - Removing all DICOM data")
+        log("=" * 60)
+        
+        # 1. Remove all DICOM objects
+        dicom_objects = ["CT_Volume", "CT_Bone", "CT_Fat", "CT_Fluid", "CT_SoftTissue", "DEBUG_Pyramid"]
+        for obj_name in dicom_objects:
+            obj = bpy.data.objects.get(obj_name)
+            if obj:
+                bpy.data.objects.remove(obj, do_unlink=True)
+                log(f"Removed object: {obj_name}")
+        
+        # 2. Remove all DICOM materials
+        dicom_materials = ["CT_Volume_Material", "CT_Bone_Material", "CT_Fat_Material", 
+                          "CT_Fluid_Material", "CT_SoftTissue_Material", "DEBUG_Pyramid_Material"]
+        for mat_name in dicom_materials:
+            mat = bpy.data.materials.get(mat_name)
+            if mat:
+                bpy.data.materials.remove(mat)
+                log(f"Removed material: {mat_name}")
+        
+        # 3. Remove preview images
+        preview_img = bpy.data.images.get("DICOM_Preview")
+        if preview_img:
+            bpy.data.images.remove(preview_img)
+            log("Removed preview image")
+        
+        # 4. Reset all scene properties
+        scn = context.scene
+        scn.dicom_volume_data_path = ""
+        scn.dicom_volume_spacing = ""
+        scn.dicom_volume_unique_id = ""
+        scn.dicom_volume_hu_min = -1024.0
+        scn.dicom_volume_hu_max = 3000.0
+        scn.dicom_fat_volume_ml = 0.0
+        scn.dicom_fluid_volume_ml = 0.0
+        scn.dicom_soft_volume_ml = 0.0
+        scn.dicom_preview_slice_index = 0
+        scn.dicom_preview_slice_count = 0
+        scn.dicom_preview_series_index = -1
+        scn.dicom_series_data = ""
+        log("Reset all scene properties")
+        
+        # 5. Clean up temp files
+        import tempfile
+        temp_dir = tempfile.gettempdir()
+        import glob
+        for pattern in ["ct_volume_*.vdb", "ct_volume_*.npy", "ct_*_*.vdb", "dicom_preview_*.png"]:
+            for filepath in glob.glob(os.path.join(temp_dir, pattern)):
+                try:
+                    os.remove(filepath)
+                    log(f"Removed temp file: {os.path.basename(filepath)}")
+                except:
+                    pass
+        
+        log("Cleanup complete - ready for fresh patient load")
+        log("=" * 60)
     
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
@@ -562,6 +625,9 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             # Save updated patient data
             context.scene.dicom_patient_data = patient.to_json()
             
+            # Automatically calculate tissue volumes
+            self._calculate_all_volumes(context)
+            
             self.report({'INFO'}, f"Visualized: {series.series_description} ({len(slices)} slices)")
             return {'FINISHED'}
             
@@ -570,6 +636,46 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             import traceback
             traceback.print_exc()
             return {'CANCELLED'}
+    
+    def _calculate_all_volumes(self, context):
+        """Calculate all tissue volumes automatically"""
+        from .measurements import calculate_tissue_volume
+        
+        scn = context.scene
+        
+        # Check if volume data is available
+        if not scn.dicom_volume_data_path or not os.path.exists(scn.dicom_volume_data_path):
+            return
+        
+        try:
+            # Load volume data
+            vol_array = np.load(scn.dicom_volume_data_path)
+            
+            # Parse spacing
+            spacing = eval(scn.dicom_volume_spacing)  # [X, Y, Z] in mm
+            pixel_spacing = (spacing[1], spacing[0])  # (row, col) = (Y, X)
+            slice_thickness = spacing[2]  # Z
+            
+            # Calculate all tissue volumes
+            scn.dicom_fat_volume_ml = calculate_tissue_volume(
+                vol_array, scn.dicom_fat_min, scn.dicom_fat_max, 
+                pixel_spacing, slice_thickness
+            )
+            
+            scn.dicom_fluid_volume_ml = calculate_tissue_volume(
+                vol_array, scn.dicom_fluid_min, scn.dicom_fluid_max, 
+                pixel_spacing, slice_thickness
+            )
+            
+            scn.dicom_soft_volume_ml = calculate_tissue_volume(
+                vol_array, scn.dicom_soft_min, scn.dicom_soft_max, 
+                pixel_spacing, slice_thickness
+            )
+            
+            log("Tissue volumes calculated automatically")
+            
+        except Exception as e:
+            log(f"Failed to calculate volumes: {e}")
 
 class IMPORT_OT_dicom_preview_series(Operator):
     """Preview series in Image Editor (2D slice viewer)"""
@@ -644,8 +750,99 @@ class IMPORT_OT_dicom_set_tool(Operator):
         self.report({'INFO'}, f"Switched to {self.tool} tool")
         return {'FINISHED'}
 
+class IMPORT_OT_dicom_toggle_series_selection(Operator):
+    """Toggle series selection for processing"""
+    bl_idname = "import.dicom_toggle_series_selection"
+    bl_label = "Toggle Series Selection"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    series_uid: StringProperty()
+    
+    def execute(self, context):
+        if not context.scene.dicom_patient_data:
+            return {'CANCELLED'}
+        
+        try:
+            patient = Patient.from_json(context.scene.dicom_patient_data)
+            series = patient.get_series_by_uid(self.series_uid)
+            
+            if series:
+                series.is_selected = not series.is_selected
+                context.scene.dicom_patient_data = patient.to_json()
+                
+                status = "selected" if series.is_selected else "deselected"
+                self.report({'INFO'}, f"Series {series.series_number} {status}")
+            
+            return {'FINISHED'}
+        except:
+            return {'CANCELLED'}
+
+class IMPORT_OT_dicom_recompute_tissues(Operator):
+    """Update tissue threshold values in geometry nodes"""
+    bl_idname = "import.dicom_recompute_tissues"
+    bl_label = "Recompute Tissues"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        scn = context.scene
+        
+        log(f"Updating tissue thresholds...")
+        log(f"Fat: {scn.dicom_fat_min} to {scn.dicom_fat_max} HU")
+        log(f"Fluid: {scn.dicom_fluid_min} to {scn.dicom_fluid_max} HU")
+        log(f"Soft: {scn.dicom_soft_min} to {scn.dicom_soft_max} HU")
+        log(f"Bone: {scn.dicom_bone_min}+ HU")
+        
+        try:
+            # Update threshold values in geometry nodes modifiers
+            tissue_configs = [
+                ("CT_Fat", scn.dicom_fat_min, scn.dicom_fat_max),
+                ("CT_Fluid", scn.dicom_fluid_min, scn.dicom_fluid_max),
+                ("CT_SoftTissue", scn.dicom_soft_min, scn.dicom_soft_max),
+                ("CT_Bone", scn.dicom_bone_min, 10000),
+            ]
+            
+            # Convert HU to normalized values
+            hu_min = scn.dicom_volume_hu_min
+            hu_max = scn.dicom_volume_hu_max
+            
+            updated_count = 0
+            for tissue_name, threshold_min, threshold_max in tissue_configs:
+                # Convert HU to normalized
+                threshold_normalized = (threshold_min - hu_min) / (hu_max - hu_min)
+                
+                tissue_obj = bpy.data.objects.get(tissue_name)
+                if tissue_obj:
+                    # Find geometry nodes modifier
+                    for mod in tissue_obj.modifiers:
+                        if mod.type == 'NODES' and mod.node_group:
+                            # Find Volume to Mesh node in the group
+                            for node in mod.node_group.nodes:
+                                if node.type == 'VOLUME_TO_MESH':
+                                    node.inputs['Threshold'].default_value = threshold_normalized
+                                    log(f"Updated {tissue_name}: {threshold_min} HU -> {threshold_normalized:.6f} normalized")
+                                    updated_count += 1
+                                    break
+            
+            if updated_count > 0:
+                self.report({'INFO'}, f"Updated {updated_count} tissue thresholds")
+                # Force viewport update
+                for area in context.screen.areas:
+                    if area.type == 'VIEW_3D':
+                        area.tag_redraw()
+                return {'FINISHED'}
+            else:
+                self.report({'WARNING'}, "No tissue objects found to update")
+                return {'CANCELLED'}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to update: {e}")
+            log(f"ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'CANCELLED'}
+
 class IMPORT_OT_dicom_toggle_display_mode(Operator):
-    """Toggle between volume and mesh display mode for all loaded volumes"""
+    """Toggle between volume and mesh display mode (4 tissue meshes)"""
     bl_idname = "import.dicom_toggle_display_mode"
     bl_label = "Toggle Display Mode"
     bl_options = {'REGISTER', 'UNDO'}
@@ -664,17 +861,31 @@ class IMPORT_OT_dicom_toggle_display_mode(Operator):
         show_mesh = (self.mode == 'MESH')
         count = 0
         
+        # Toggle each volume and its 4 tissue meshes
         for obj_name in patient.volume_objects.values():
             vol_obj = bpy.data.objects.get(obj_name)
-            if vol_obj:
-                geonodes_mod = vol_obj.modifiers.get("VolumeToMesh")
-                if geonodes_mod:
-                    geonodes_mod.show_viewport = show_mesh
-                    geonodes_mod.show_render = show_mesh
-                    count += 1
+            if not vol_obj:
+                continue
+            
+            # Hide/show the volume object itself
+            vol_obj.hide_viewport = show_mesh
+            vol_obj.hide_render = show_mesh
+            
+            # Find and toggle the 4 tissue mesh objects
+            tissue_names = ["CT_Fat", "CT_Fluid", "CT_SoftTissue", "CT_Bone"]
+            for tissue_name in tissue_names:
+                tissue_obj = bpy.data.objects.get(tissue_name)
+                if tissue_obj:
+                    # Find the geometry nodes modifier
+                    for mod in tissue_obj.modifiers:
+                        if mod.type == 'NODES':
+                            mod.show_viewport = show_mesh
+                            mod.show_render = show_mesh
+                            count += 1
+                            break
         
         mode_name = "Mesh" if show_mesh else "Volume"
-        self.report({'INFO'}, f"Switched {count} volume(s) to {mode_name} mode")
+        self.report({'INFO'}, f"Switched to {mode_name} mode ({count} tissue meshes)")
         
         # Force viewport update
         for area in context.screen.areas:
@@ -683,12 +894,78 @@ class IMPORT_OT_dicom_toggle_display_mode(Operator):
         
         return {'FINISHED'}
 
+class IMPORT_OT_dicom_calculate_volume(Operator):
+    """Calculate tissue volume for a specific HU range"""
+    bl_idname = "import.dicom_calculate_volume"
+    bl_label = "Calculate Volume"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    tissue_type: StringProperty()  # 'fat', 'fluid', 'soft'
+    
+    def execute(self, context):
+        from .measurements import calculate_tissue_volume
+        
+        scn = context.scene
+        
+        # Check if volume data is available
+        if not scn.dicom_volume_data_path or not os.path.exists(scn.dicom_volume_data_path):
+            self.report({'ERROR'}, "No volume data available. Please load a DICOM series first.")
+            return {'CANCELLED'}
+        
+        try:
+            # Load volume data
+            vol_array = np.load(scn.dicom_volume_data_path)
+            
+            # Parse spacing
+            spacing = eval(scn.dicom_volume_spacing)  # [X, Y, Z] in mm
+            pixel_spacing = (spacing[1], spacing[0])  # (row, col) = (Y, X)
+            slice_thickness = spacing[2]  # Z
+            
+            # Get HU thresholds based on tissue type
+            if self.tissue_type == 'fat':
+                hu_min = scn.dicom_fat_min
+                hu_max = scn.dicom_fat_max
+                result_prop = 'dicom_fat_volume_ml'
+                tissue_name = "Fat"
+            elif self.tissue_type == 'fluid':
+                hu_min = scn.dicom_fluid_min
+                hu_max = scn.dicom_fluid_max
+                result_prop = 'dicom_fluid_volume_ml'
+                tissue_name = "Fluid"
+            elif self.tissue_type == 'soft':
+                hu_min = scn.dicom_soft_min
+                hu_max = scn.dicom_soft_max
+                result_prop = 'dicom_soft_volume_ml'
+                tissue_name = "Soft Tissue"
+            else:
+                self.report({'ERROR'}, f"Unknown tissue type: {self.tissue_type}")
+                return {'CANCELLED'}
+            
+            # Calculate volume
+            volume_ml = calculate_tissue_volume(vol_array, hu_min, hu_max, pixel_spacing, slice_thickness)
+            
+            # Store result
+            setattr(scn, result_prop, volume_ml)
+            
+            self.report({'INFO'}, f"{tissue_name}: {volume_ml:.2f} mL")
+            return {'FINISHED'}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to calculate volume: {e}")
+            log(f"ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'CANCELLED'}
+
 classes = (
     IMPORT_OT_dicom_load_patient,
     IMPORT_OT_dicom_visualize_series,
     IMPORT_OT_dicom_preview_series,
     IMPORT_OT_dicom_set_tool,
+    IMPORT_OT_dicom_toggle_series_selection,
+    IMPORT_OT_dicom_recompute_tissues,
     IMPORT_OT_dicom_toggle_display_mode,
+    IMPORT_OT_dicom_calculate_volume,
     IMPORT_OT_dicom_scan,
     IMPORT_OT_dicom_preview,
     IMPORT_OT_dicom_preview_popup,

@@ -11,7 +11,61 @@ from .dicom_io import log
 from .constants import *
 from .volume_utils import clean_temp_dir, clean_old_volumes, save_debug_slice
 from .materials import create_volume_material, create_mesh_material
-from .geometry_nodes import create_volume_to_mesh_geonodes
+from .geometry_nodes import create_tissue_mesh_geonodes
+
+
+def create_masked_vdb(vol_array, mask, tissue_name, spacing_meters, unique_id):
+    """Create a VDB file with masked volume data"""
+    import openvdb as vdb
+    
+    # Apply mask: set non-tissue voxels to very low value (will be below any threshold)
+    masked_vol = np.where(mask, vol_array, -10000.0).astype(np.float32)
+    
+    # Create VDB grid
+    grid = vdb.FloatGrid()
+    grid.copyFromArray(masked_vol)
+    grid.name = "density"
+    
+    # Set transform (same as original volume)
+    transform_matrix = [
+        [spacing_meters[2], 0, 0, 0],  # Z
+        [0, spacing_meters[1], 0, 0],  # Y
+        [0, 0, spacing_meters[0], 0],  # X
+        [0, 0, 0, 1]
+    ]
+    grid.transform = vdb.createLinearTransform(transform_matrix)
+    
+    # Save to temp file
+    temp_vdb = os.path.join(tempfile.gettempdir(), f"ct_{tissue_name}_{unique_id}.vdb")
+    vdb.write(temp_vdb, grids=[grid])
+    
+    log(f"Created masked VDB for {tissue_name}: {temp_vdb}")
+    return temp_vdb
+
+
+def create_tissue_volumes(vol_array, spacing_meters, unique_id, fat_min, fat_max, fluid_min, fluid_max, soft_min, soft_max, bone_min):
+    """Create 4 masked VDB volumes for different tissue types"""
+    log("Creating tissue-specific VDB volumes...")
+    
+    # Create masks for each tissue type
+    fat_mask = (vol_array >= fat_min) & (vol_array <= fat_max)
+    fluid_mask = (vol_array >= fluid_min) & (vol_array <= fluid_max)
+    soft_mask = (vol_array >= soft_min) & (vol_array <= soft_max)
+    bone_mask = (vol_array >= bone_min)
+    
+    # Create VDB files
+    fat_vdb = create_masked_vdb(vol_array, fat_mask, "fat", spacing_meters, unique_id)
+    fluid_vdb = create_masked_vdb(vol_array, fluid_mask, "fluid", spacing_meters, unique_id)
+    soft_vdb = create_masked_vdb(vol_array, soft_mask, "soft", spacing_meters, unique_id)
+    bone_vdb = create_masked_vdb(vol_array, bone_mask, "bone", spacing_meters, unique_id)
+    
+    return {
+        'fat': fat_vdb,
+        'fluid': fluid_vdb,
+        'soft': soft_vdb,
+        'bone': bone_vdb
+    }
+
 
 def create_volume(slices):
     """Create a volume object from DICOM slices with proper Hounsfield units."""
@@ -108,8 +162,23 @@ def create_volume(slices):
     # Clean up old volumes
     clean_old_volumes("CT_Volume")
 
-    # Save volume data to temporary VDB file with UNIQUE name
+    # Generate unique ID for this volume session
     unique_id = str(uuid.uuid4())[:8]
+    
+    # Save numpy array to temp file for recomputation
+    numpy_path = os.path.join(tempfile.gettempdir(), f"ct_volume_{unique_id}.npy")
+    np.save(numpy_path, vol)
+    log(f"Saved volume data to: {numpy_path}")
+    
+    # Store in scene for recomputation
+    bpy.context.scene.dicom_volume_data_path = numpy_path
+    bpy.context.scene.dicom_volume_spacing = str(spacing)  # [X, Y, Z] in mm
+    bpy.context.scene.dicom_volume_unique_id = unique_id
+    # Store HU range for threshold conversion
+    bpy.context.scene.dicom_volume_hu_min = vol_min
+    bpy.context.scene.dicom_volume_hu_max = vol_max
+    
+    # Save volume data to temporary VDB file
     temp_vdb = os.path.join(tempfile.gettempdir(), f"ct_volume_{unique_id}.vdb")
     
     log(f"Creating VDB file: {temp_vdb}")
@@ -117,13 +186,16 @@ def create_volume(slices):
     try:
         import openvdb as vdb
         
-        # Keep as float32 with real Hounsfield units
+        # Normalize to 0-1 range for Blender compatibility
+        # Store the range for later conversion
         vol_float = vol.astype(np.float32)
+        vol_normalized = (vol_float - vol_min) / (vol_max - vol_min)
         
         log(f"Original numpy array shape (Z,Y,X): {vol_float.shape}")
         log(f"This means: {depth} slices of {height}x{width} images")
+        log(f"Normalized range: {vol_normalized.min():.6f} to {vol_normalized.max():.6f}")
         
-        vol_for_vdb = vol_float
+        vol_for_vdb = vol_normalized
         
         log(f"VDB input shape: {vol_for_vdb.shape}")
         
@@ -177,21 +249,93 @@ def create_volume(slices):
     expected_dims = (width * spacing_meters[0], height * spacing_meters[1], depth * spacing_meters[2])
     log(f"Expected dimensions (meters): {expected_dims}")
     
-    # Create materials
+    # Create volume material
     create_volume_material(vol_obj, vol_min, vol_max)
     
-    log("Creating mesh material...")
-    create_mesh_material(vol_obj, vol_min, vol_max)
+    # Clean up old bone object and material if they exist
+    log("Cleaning up old bone objects...")
+    old_bone = bpy.data.objects.get("CT_Bone")
+    if old_bone:
+        bpy.data.objects.remove(old_bone, do_unlink=True)
+        log("Removed old CT_Bone object")
     
-    log("Creating geometry nodes setup...")
-    create_volume_to_mesh_geonodes(vol_obj)
+    old_bone_mat = bpy.data.materials.get("CT_Bone_Material")
+    if old_bone_mat:
+        bpy.data.materials.remove(old_bone_mat)
+        log("Removed old CT_Bone_Material")
     
-    # Set up dual-mode: volume by default, mesh on toggle
-    geonodes_mod = vol_obj.modifiers.get("VolumeToMesh")
-    if geonodes_mod:
-        geonodes_mod.show_viewport = False  # Start with volume visible
-        geonodes_mod.show_render = False    # Volume for render by default
-        log("Dual-mode enabled: Toggle geometry nodes modifier to switch volume/mesh")
+    # Get bone threshold from scene properties
+    scn = bpy.context.scene
+    bone_min = scn.dicom_bone_min
+    
+    log("=" * 60)
+    log(f"Creating bone mesh (threshold: {bone_min}+ HU)...")
+    log("=" * 60)
+    
+    # Create bone material with pointiness-based shader
+    log("Creating bone material...")
+    mat_bone = bpy.data.materials.new("CT_Bone_Material")
+    mat_bone.use_nodes = True
+    nodes = mat_bone.node_tree.nodes
+    links = mat_bone.node_tree.links
+    nodes.clear()
+    
+    # Geometry node for pointiness
+    geom = nodes.new('ShaderNodeNewGeometry')
+    geom.location = (-541, 329)
+    
+    # ColorRamp for pointiness → color
+    color_ramp = nodes.new('ShaderNodeValToRGB')
+    color_ramp.location = (-221, 414)
+    
+    # Math node for specular control
+    math_node = nodes.new('ShaderNodeMath')
+    math_node.location = (150, 306)
+    math_node.operation = 'MULTIPLY'
+    math_node.inputs[1].default_value = 0.5  # Scale factor
+    
+    # Mix node for color blending
+    mix = nodes.new('ShaderNodeMix')
+    mix.location = (92, 566)
+    mix.data_type = 'RGBA'
+    mix.inputs['A'].default_value = (0.7, 0.65, 0.55, 1.0)  # Dark bone
+    mix.inputs['B'].default_value = (0.95, 0.92, 0.85, 1.0)  # Light bone
+    
+    # Principled BSDF
+    bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+    bsdf.location = (657, 425)
+    bsdf.inputs['Roughness'].default_value = 0.4
+    
+    # Material Output
+    out = nodes.new('ShaderNodeOutputMaterial')
+    out.location = (1001, 417)
+    
+    # Connect nodes
+    links.new(geom.outputs['Pointiness'], color_ramp.inputs['Fac'])
+    links.new(color_ramp.outputs['Color'], mix.inputs['Factor'])
+    links.new(color_ramp.outputs['Color'], math_node.inputs[0])
+    links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
+    links.new(math_node.outputs['Value'], bsdf.inputs['Specular IOR Level'])
+    links.new(math_node.outputs['Value'], bsdf.inputs['Sheen Weight'])
+    links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+    
+    # Create bone mesh object
+    log("Creating bone mesh object...")
+    bone_obj = vol_obj.copy()
+    bone_obj.name = "CT_Bone"
+    bone_obj.data = vol_obj.data  # Share VDB data
+    bpy.context.collection.objects.link(bone_obj)
+    bone_obj.location = vol_obj.location.copy()
+    bone_obj.rotation_euler = vol_obj.rotation_euler.copy()
+    
+    # Create geometry nodes for bone mesh
+    bone_mod = create_tissue_mesh_geonodes(bone_obj, "Bone", bone_min, 10000, mat_bone)
+    if bone_mod:
+        bone_mod.show_viewport = False  # Hidden by default
+        bone_mod.show_render = False
+        log("Bone mesh created (hidden by default)")
+    else:
+        log("ERROR: Bone modifier creation failed!")
     
     log(f"Volume created with Hounsfield units preserved ({vol_min:.1f} to {vol_max:.1f})")
     log("=" * 60)

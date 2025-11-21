@@ -8,7 +8,7 @@ type = "add-on"
 license = ["GPL-3.0-or-later"]
 
 # Blender version compatibility
-blender_version_min = "4.5.0"
+blender_version_min = "5.0.0"
 
 # Python wheels (dependencies)
 wheels = [

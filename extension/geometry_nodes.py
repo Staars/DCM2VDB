@@ -2,19 +2,25 @@
 
 import bpy
 from .dicom_io import log
-from .constants import GEONODES_DEFAULT_THRESHOLD, GEONODES_THRESHOLD_OFFSET
 
-def create_volume_to_mesh_geonodes(vol_obj):
-    """Create a Geometry Nodes modifier with Volume to Mesh setup"""
+def create_tissue_mesh_geonodes(vol_obj, tissue_name, threshold_min, threshold_max, material=None):
+    """Create a Geometry Nodes modifier to extract mesh at threshold (simplified - no boolean)"""
     
     try:
-        log("Creating Geometry Nodes modifier...")
+        # Convert HU threshold to normalized 0-1 range
+        scn = bpy.context.scene
+        hu_min = scn.dicom_volume_hu_min
+        hu_max = scn.dicom_volume_hu_max
+        threshold_normalized = (threshold_min - hu_min) / (hu_max - hu_min)
+        
+        log(f"Creating Geometry Nodes for {tissue_name}...")
+        log(f"  HU threshold: {threshold_min} -> normalized: {threshold_normalized:.6f}")
         
         # Add geometry nodes modifier
-        mod = vol_obj.modifiers.new(name="VolumeToMesh", type='NODES')
+        mod = vol_obj.modifiers.new(name=f"{tissue_name}_Mesh", type='NODES')
         
         # Create new node group
-        node_group = bpy.data.node_groups.new(name="CT_VolumeToMesh", type='GeometryNodeTree')
+        node_group = bpy.data.node_groups.new(name=f"CT_{tissue_name}_Mesh", type='GeometryNodeTree')
         mod.node_group = node_group
         
         # Create input/output nodes
@@ -22,51 +28,51 @@ def create_volume_to_mesh_geonodes(vol_obj):
         links = node_group.links
         
         group_input = nodes.new('NodeGroupInput')
-        group_input.location = (-600, 0)
+        group_input.location = (-400, 0)
         
         group_output = nodes.new('NodeGroupOutput')
-        group_output.location = (600, 0)
+        group_output.location = (400, 0)
         
-        # Add Math node (Add) for threshold adjustment
-        math_add = nodes.new('ShaderNodeMath')
-        math_add.operation = 'ADD'
-        math_add.location = (-300, 0)
-        math_add.inputs[1].default_value = GEONODES_THRESHOLD_OFFSET
-        
-        # Add Volume to Mesh node
+        # Volume to Mesh node (simple - just lower threshold)
         vol_to_mesh = nodes.new('GeometryNodeVolumeToMesh')
         vol_to_mesh.location = (0, 0)
-        vol_to_mesh.resolution_mode = 'GRID'
+        # resolution_mode removed in Blender 5.0
+        vol_to_mesh.inputs['Threshold'].default_value = threshold_normalized
         
-        # Add Set Material node
+        # Set Material node (if provided)
         set_material = nodes.new('GeometryNodeSetMaterial')
-        set_material.location = (300, 0)
+        set_material.location = (200, 0)
+        if material:
+            set_material.inputs['Material'].default_value = material
         
-        # Get the CT_Mesh_Material
-        mesh_material = bpy.data.materials.get("CT_Mesh_Material")
-        if mesh_material:
-            set_material.inputs['Material'].default_value = mesh_material
+        # Create sockets - try different API for Blender 5.0
+        try:
+            # Blender 4.0+ API
+            node_group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
+            node_group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
+        except:
+            # Fallback for older/newer versions
+            try:
+                output_socket = node_group.interface.items_tree.new('NodeSocketGeometry', 'Geometry')
+                output_socket.in_out = 'OUTPUT'
+                input_socket = node_group.interface.items_tree.new('NodeSocketGeometry', 'Geometry')
+                input_socket.in_out = 'INPUT'
+            except:
+                # Last resort - use outputs/inputs directly
+                node_group.outputs.new('NodeSocketGeometry', 'Geometry')
+                node_group.inputs.new('NodeSocketGeometry', 'Geometry')
         
-        # Create input sockets
-        node_group.interface.new_socket(name="Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
-        node_group.interface.new_socket(name="Threshold", in_out='INPUT', socket_type='NodeSocketFloat')
-        node_group.interface.new_socket(name="Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
-        
-        # Set default threshold value
-        mod["Input_2_attribute_name"] = "density"
-        mod["Input_2_use_attribute"] = 0
-        mod["Input_2"] = GEONODES_DEFAULT_THRESHOLD
-        
-        # Connect nodes
+        # Connect nodes (simple path - no boolean)
         links.new(group_input.outputs[0], vol_to_mesh.inputs['Volume'])
-        links.new(group_input.outputs[1], math_add.inputs[0])
-        links.new(math_add.outputs[0], vol_to_mesh.inputs['Threshold'])
         links.new(vol_to_mesh.outputs['Mesh'], set_material.inputs['Geometry'])
         links.new(set_material.outputs['Geometry'], group_output.inputs[0])
         
-        log(f"Created Geometry Nodes: Volume to Mesh with material (Threshold: {GEONODES_DEFAULT_THRESHOLD} HU + {GEONODES_THRESHOLD_OFFSET})")
+        log(f"Created simple Geometry Nodes: {tissue_name} (threshold: {threshold_min} HU)")
+        
+        return mod
         
     except Exception as e:
-        log(f"ERROR creating Geometry Nodes: {e}")
+        log(f"ERROR creating Geometry Nodes for {tissue_name}: {e}")
         import traceback
         traceback.print_exc()
+        return None

@@ -51,6 +51,7 @@ class SeriesInfo:
     # Visualization State
     is_loaded: bool = False  # Has VDB been generated?
     is_visible: bool = False  # Is volume visible in viewport?
+    is_selected: bool = True  # Is series selected for processing? (default: True)
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""

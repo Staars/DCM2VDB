@@ -6,55 +6,82 @@ from .constants import *
 from .node_builders import *
 
 def create_volume_material(vol_obj, vol_min, vol_max):
-    """Create material with proper CT visualization"""
+    """Create material for normalized (0-1) VDB data"""
     mat = bpy.data.materials.new("CT_Volume_Material")
     mat.use_nodes = True
     nodes, links = mat.node_tree.nodes, mat.node_tree.links
     nodes.clear()
     
+    log("Creating volume material for NORMALIZED data (0-1 range)")
+    
     # Output
     out = nodes.new("ShaderNodeOutputMaterial")
-    out.location = (1200, 0)
+    out.location = (800, 0)
     
     # Volume Principled
     prin = nodes.new("ShaderNodeVolumePrincipled")
-    prin.location = (900, 0)
+    prin.location = (600, 0)
     prin.inputs["Anisotropy"].default_value = 0.0
     
-    # Volume Info node to read density
+    # Volume Info node to read density (already 0-1)
     vol_info = nodes.new("ShaderNodeVolumeInfo")
-    vol_info.location = (-600, 0)
+    vol_info.location = (-400, 0)
     
-    # Map Range: Convert Hounsfield units to 0-1 range
-    map_range = build_hu_mapper(nodes, links, vol_min, vol_max, location=(-400, 0))
+    # Calculate normalized air threshold
+    # Air is around -1000 HU, normalize it
+    air_threshold_normalized = (HU_AIR_THRESHOLD - vol_min) / (vol_max - vol_min)
+    log(f"Air threshold: {HU_AIR_THRESHOLD} HU = {air_threshold_normalized:.6f} normalized")
     
-    # Threshold mask
-    math_threshold = build_threshold_mask(nodes, HU_AIR_THRESHOLD, location=(-200, 200))
+    # Threshold mask: hide air (values below threshold)
+    math_threshold = nodes.new("ShaderNodeMath")
+    math_threshold.location = (-200, 200)
+    math_threshold.operation = 'GREATER_THAN'
+    math_threshold.inputs[1].default_value = air_threshold_normalized
+    math_threshold.label = "Air_Threshold"
     
-    # Density ramp
-    ramp_density = build_density_ramp(nodes, vol_min, vol_max, location=(0, 100))
+    # Color ramp for tissue colors (works directly with 0-1 data)
+    ramp_color = nodes.new("ShaderNodeValToRGB")
+    ramp_color.location = (0, -100)
+    ramp_color.label = "Tissue_Colors"
     
-    # Color ramp
-    ramp_color = build_tissue_color_ramp(nodes, vol_min, vol_max, location=(0, -100))
+    # Set up color stops for different tissues
+    ramp_color.color_ramp.elements[0].position = 0.0
+    ramp_color.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)  # Black (air/low)
+    ramp_color.color_ramp.elements[1].position = 1.0
+    ramp_color.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)  # White (bone/high)
     
-    # Multiply threshold mask with density ramp
+    # Add intermediate stops
+    elem_soft = ramp_color.color_ramp.elements.new(0.5)
+    elem_soft.color = (0.8, 0.4, 0.3, 1.0)  # Reddish for soft tissue
+    
+    # Density ramp (controls opacity)
+    ramp_density = nodes.new("ShaderNodeValToRGB")
+    ramp_density.location = (0, 100)
+    ramp_density.label = "Density_Ramp"
+    
+    # Density curve: low values = transparent, high values = opaque
+    ramp_density.color_ramp.elements[0].position = 0.0
+    ramp_density.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)  # Transparent
+    ramp_density.color_ramp.elements[1].position = 1.0
+    ramp_density.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)  # Opaque
+    
+    # Multiply threshold mask with density
     math_mask = nodes.new("ShaderNodeMath")
     math_mask.location = (300, 100)
     math_mask.operation = 'MULTIPLY'
     math_mask.label = "Apply_Threshold"
     
-    # Math multiply to scale density
+    # Scale density for viewport - MUCH HIGHER for visibility
     math_scale = nodes.new("ShaderNodeMath")
-    math_scale.location = (500, 100)
+    math_scale.location = (450, 100)
     math_scale.operation = 'MULTIPLY'
-    math_scale.inputs[1].default_value = DENSITY_SCALE_DEFAULT
+    math_scale.inputs[1].default_value = 10.0  # High value for normalized data
     math_scale.label = "Density_Scale"
     
     # Connections
-    links.new(vol_info.outputs["Density"], map_range.inputs["Value"])
     links.new(vol_info.outputs["Density"], math_threshold.inputs[0])
-    links.new(map_range.outputs["Result"], ramp_density.inputs["Fac"])
-    links.new(map_range.outputs["Result"], ramp_color.inputs["Fac"])
+    links.new(vol_info.outputs["Density"], ramp_color.inputs["Fac"])
+    links.new(vol_info.outputs["Density"], ramp_density.inputs["Fac"])
     
     # Apply threshold mask
     links.new(ramp_density.outputs["Color"], math_mask.inputs[0])
@@ -72,11 +99,12 @@ def create_volume_material(vol_obj, vol_min, vol_max):
     else:
         vol_obj.data.materials[0] = mat
     
-    # Set viewport display settings
-    vol_obj.data.display.density = VIEWPORT_DENSITY_DEFAULT
+    # Set viewport display settings - MUCH HIGHER for visibility
+    vol_obj.data.display.density = 1.0  # High value for normalized data
     
-    log(f"Material configured for HU range {vol_min:.0f} to {vol_max:.0f}")
-    log(f"Air threshold: {HU_AIR_THRESHOLD:.0f} HU (everything below is transparent)")
+    log(f"Volume material created for normalized data")
+    log(f"Original HU range: {vol_min:.0f} to {vol_max:.0f}")
+    log(f"VDB contains normalized 0-1 values")
 
 def create_mesh_material(vol_obj, vol_min, vol_max):
     """TODO: Reimplement mesh material for tissue-specific visualization"""
