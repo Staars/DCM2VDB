@@ -228,26 +228,26 @@ class VIEW3D_PT_dicom_visualization(Panel):
                 
                 # Show measurements if loaded
                 if series.is_loaded:
-                    # Show volume measurements
-                    if scn.dicom_volume_data_path and os.path.exists(scn.dicom_volume_data_path):
+                    # Show volume measurements (per-series)
+                    if series.fat_volume_ml > 0 or series.fluid_volume_ml > 0 or series.soft_volume_ml > 0:
                         col = box.column(align=True)
                         col.separator()
                         col.label(text="Tissue Volumes:", icon='GRAPH')
                         
                         # Fat
-                        if scn.dicom_fat_volume_ml > 0:
+                        if series.fat_volume_ml > 0:
                             row = col.row()
-                            row.label(text=f"  Fat: {scn.dicom_fat_volume_ml:.2f} mL")
+                            row.label(text=f"  Fat: {series.fat_volume_ml:.2f} mL")
                         
                         # Fluid
-                        if scn.dicom_fluid_volume_ml > 0:
+                        if series.fluid_volume_ml > 0:
                             row = col.row()
-                            row.label(text=f"  Fluid: {scn.dicom_fluid_volume_ml:.2f} mL")
+                            row.label(text=f"  Fluid: {series.fluid_volume_ml:.2f} mL")
                         
                         # Soft tissue
-                        if scn.dicom_soft_volume_ml > 0:
+                        if series.soft_volume_ml > 0:
                             row = col.row()
-                            row.label(text=f"  Soft Tissue: {scn.dicom_soft_volume_ml:.2f} mL")
+                            row.label(text=f"  Soft Tissue: {series.soft_volume_ml:.2f} mL")
 
 class IMAGE_EDITOR_PT_dicom_controls(Panel):
     """DICOM controls panel in Image Editor"""

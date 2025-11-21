@@ -67,8 +67,13 @@ def create_tissue_volumes(vol_array, spacing_meters, unique_id, fat_min, fat_max
     }
 
 
-def create_volume(slices):
-    """Create a volume object from DICOM slices with proper Hounsfield units."""
+def create_volume(slices, series_number=1):
+    """Create a volume object from DICOM slices with proper Hounsfield units.
+    
+    Args:
+        slices: List of DICOM slice data
+        series_number: Series number for unique object naming
+    """
     clean_temp_dir()
 
     # Parse ImageOrientationPatient and ImagePositionPatient
@@ -159,8 +164,9 @@ def create_volume(slices):
     # Debug: Save middle slice as PNG
     save_debug_slice(vol)
     
-    # Clean up old volumes
-    clean_old_volumes("CT_Volume")
+    # Clean up old volumes for this series
+    volume_name = f"CT_Volume_S{series_number}"
+    clean_old_volumes(volume_name)
 
     # Generate unique ID for this volume session
     unique_id = str(uuid.uuid4())[:8]
@@ -234,7 +240,26 @@ def create_volume(slices):
     
     # Get the imported volume object
     vol_obj = bpy.context.active_object
-    vol_obj.name = "CT_Volume"
+    vol_obj.name = volume_name
+    
+    # Get the first slice's ImagePositionPatient (position of first voxel)
+    first_position = slices[0]["position"]  # Already in mm
+    
+    # Convert DICOM patient coordinates to Blender world coordinates
+    # DICOM: X=right, Y=anterior, Z=superior (head)
+    # Blender: X=right, Y=back, Z=up
+    # We need to transform: DICOM (x,y,z) → Blender (x, -y, z) and scale to meters
+    blender_location = (
+        first_position[0] * 0.001,   # X: right (mm → m)
+        -first_position[1] * 0.001,  # Y: anterior → back (mm → m, flip)
+        first_position[2] * 0.001    # Z: superior (mm → m)
+    )
+    
+    log(f"DICOM ImagePositionPatient: {first_position} mm")
+    log(f"Blender world location: {blender_location} m")
+    
+    # Set position
+    vol_obj.location = blender_location
     
     # Rotate volume to correct orientation
     # Patient Z-axis (head-to-feet) should align with Blender Z-axis (up-down)
@@ -252,17 +277,20 @@ def create_volume(slices):
     # Create volume material
     create_volume_material(vol_obj, vol_min, vol_max)
     
-    # Clean up old bone object and material if they exist
-    log("Cleaning up old bone objects...")
-    old_bone = bpy.data.objects.get("CT_Bone")
+    # Clean up old bone object and material if they exist for this series
+    bone_name = f"CT_Bone_S{series_number}"
+    bone_mat_name = f"CT_Bone_Material_S{series_number}"
+    
+    log(f"Cleaning up old bone objects for series {series_number}...")
+    old_bone = bpy.data.objects.get(bone_name)
     if old_bone:
         bpy.data.objects.remove(old_bone, do_unlink=True)
-        log("Removed old CT_Bone object")
+        log(f"Removed old {bone_name} object")
     
-    old_bone_mat = bpy.data.materials.get("CT_Bone_Material")
+    old_bone_mat = bpy.data.materials.get(bone_mat_name)
     if old_bone_mat:
         bpy.data.materials.remove(old_bone_mat)
-        log("Removed old CT_Bone_Material")
+        log(f"Removed old {bone_mat_name}")
     
     # Get bone threshold from scene properties
     scn = bpy.context.scene
@@ -274,7 +302,7 @@ def create_volume(slices):
     
     # Create bone material with pointiness-based shader
     log("Creating bone material...")
-    mat_bone = bpy.data.materials.new("CT_Bone_Material")
+    mat_bone = bpy.data.materials.new(bone_mat_name)
     mat_bone.use_nodes = True
     nodes = mat_bone.node_tree.nodes
     links = mat_bone.node_tree.links
@@ -322,7 +350,7 @@ def create_volume(slices):
     # Create bone mesh object
     log("Creating bone mesh object...")
     bone_obj = vol_obj.copy()
-    bone_obj.name = "CT_Bone"
+    bone_obj.name = bone_name
     bone_obj.data = vol_obj.data  # Share VDB data
     bpy.context.collection.objects.link(bone_obj)
     bone_obj.location = vol_obj.location.copy()

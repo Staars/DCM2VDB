@@ -53,6 +53,11 @@ class SeriesInfo:
     is_visible: bool = False  # Is volume visible in viewport?
     is_selected: bool = True  # Is series selected for processing? (default: True)
     
+    # Per-series measurements (in mL)
+    fat_volume_ml: float = 0.0
+    fluid_volume_ml: float = 0.0
+    soft_volume_ml: float = 0.0
+    
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)

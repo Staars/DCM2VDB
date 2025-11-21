@@ -17,21 +17,23 @@ class DicomSeriesProperty(PropertyGroup):
     window_width: FloatProperty()
 
 def update_volume_visibility(self, context):
-    """Update volume object visibility"""
-    vol_obj = bpy.data.objects.get("CT_Volume")
-    if vol_obj:
-        vol_obj.hide_viewport = not context.scene.dicom_show_volume
+    """Update volume object visibility for all series"""
+    # Find all CT_Volume_S* objects
+    for obj in bpy.data.objects:
+        if obj.name.startswith("CT_Volume_S"):
+            obj.hide_viewport = not context.scene.dicom_show_volume
 
-def update_tissue_visibility(self, context, tissue_name, prop_name):
-    """Update tissue mesh visibility"""
-    tissue_obj = bpy.data.objects.get(tissue_name)
-    if tissue_obj:
-        show = getattr(context.scene, prop_name)
-        # Toggle geometry nodes modifier
-        for mod in tissue_obj.modifiers:
-            if mod.type == 'NODES':
-                mod.show_viewport = show
-                break
+def update_tissue_visibility(self, context, tissue_prefix, prop_name):
+    """Update tissue mesh visibility for all series"""
+    show = getattr(context.scene, prop_name)
+    # Find all objects matching the tissue prefix (e.g., CT_Bone_S*)
+    for obj in bpy.data.objects:
+        if obj.name.startswith(tissue_prefix):
+            # Toggle geometry nodes modifier
+            for mod in obj.modifiers:
+                if mod.type == 'NODES':
+                    mod.show_viewport = show
+                    break
 
 def register_scene_props():
     """Register scene properties"""
@@ -190,7 +192,7 @@ def register_scene_props():
         name="Show Bone Mesh",
         default=False,
         description="Show/hide bone mesh",
-        update=lambda self, context: update_tissue_visibility(self, context, "CT_Bone", "dicom_show_bone")
+        update=lambda self, context: update_tissue_visibility(self, context, "CT_Bone_S", "dicom_show_bone")
     )
     
     # Measurement results

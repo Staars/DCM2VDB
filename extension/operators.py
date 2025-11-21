@@ -76,22 +76,30 @@ class IMPORT_OT_dicom_load_patient(Operator):
         log("COMPLETE CLEANUP - Removing all DICOM data")
         log("=" * 60)
         
-        # 1. Remove all DICOM objects
-        dicom_objects = ["CT_Volume", "CT_Bone", "CT_Fat", "CT_Fluid", "CT_SoftTissue", "DEBUG_Pyramid"]
-        for obj_name in dicom_objects:
-            obj = bpy.data.objects.get(obj_name)
-            if obj:
-                bpy.data.objects.remove(obj, do_unlink=True)
-                log(f"Removed object: {obj_name}")
+        # 1. Remove all DICOM objects (including all series)
+        dicom_prefixes = ["CT_Volume_S", "CT_Bone_S", "CT_Fat", "CT_Fluid", "CT_SoftTissue", "DEBUG_Pyramid"]
+        removed_count = 0
+        for obj in list(bpy.data.objects):
+            for prefix in dicom_prefixes:
+                if obj.name.startswith(prefix):
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                    log(f"Removed object: {obj.name}")
+                    removed_count += 1
+                    break
+        log(f"Removed {removed_count} DICOM objects")
         
-        # 2. Remove all DICOM materials
-        dicom_materials = ["CT_Volume_Material", "CT_Bone_Material", "CT_Fat_Material", 
-                          "CT_Fluid_Material", "CT_SoftTissue_Material", "DEBUG_Pyramid_Material"]
-        for mat_name in dicom_materials:
-            mat = bpy.data.materials.get(mat_name)
-            if mat:
-                bpy.data.materials.remove(mat)
-                log(f"Removed material: {mat_name}")
+        # 2. Remove all DICOM materials (including all series)
+        mat_prefixes = ["CT_Volume_Material_S", "CT_Bone_Material_S", "CT_Fat_Material", 
+                       "CT_Fluid_Material", "CT_SoftTissue_Material", "DEBUG_Pyramid_Material"]
+        removed_mat_count = 0
+        for mat in list(bpy.data.materials):
+            for prefix in mat_prefixes:
+                if mat.name.startswith(prefix):
+                    bpy.data.materials.remove(mat)
+                    log(f"Removed material: {mat.name}")
+                    removed_mat_count += 1
+                    break
+        log(f"Removed {removed_mat_count} DICOM materials")
         
         # 3. Remove preview images
         preview_img = bpy.data.images.get("DICOM_Preview")
@@ -612,8 +620,8 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             return {'CANCELLED'}
         
         try:
-            # Create volume
-            vol_obj = create_volume(slices)
+            # Create volume with series number for unique naming
+            vol_obj = create_volume(slices, series_number=series.series_number)
             
             # Update series state
             series.is_loaded = True
@@ -625,8 +633,11 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             # Save updated patient data
             context.scene.dicom_patient_data = patient.to_json()
             
-            # Automatically calculate tissue volumes
-            self._calculate_all_volumes(context)
+            # Automatically calculate tissue volumes for this series
+            self._calculate_all_volumes(context, series)
+            
+            # Save updated measurements
+            context.scene.dicom_patient_data = patient.to_json()
             
             self.report({'INFO'}, f"Visualized: {series.series_description} ({len(slices)} slices)")
             return {'FINISHED'}
@@ -637,8 +648,8 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             traceback.print_exc()
             return {'CANCELLED'}
     
-    def _calculate_all_volumes(self, context):
-        """Calculate all tissue volumes automatically"""
+    def _calculate_all_volumes(self, context, series):
+        """Calculate all tissue volumes automatically for a specific series"""
         from .measurements import calculate_tissue_volume
         
         scn = context.scene
@@ -656,23 +667,23 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             pixel_spacing = (spacing[1], spacing[0])  # (row, col) = (Y, X)
             slice_thickness = spacing[2]  # Z
             
-            # Calculate all tissue volumes
-            scn.dicom_fat_volume_ml = calculate_tissue_volume(
+            # Calculate all tissue volumes and store in series
+            series.fat_volume_ml = calculate_tissue_volume(
                 vol_array, scn.dicom_fat_min, scn.dicom_fat_max, 
                 pixel_spacing, slice_thickness
             )
             
-            scn.dicom_fluid_volume_ml = calculate_tissue_volume(
+            series.fluid_volume_ml = calculate_tissue_volume(
                 vol_array, scn.dicom_fluid_min, scn.dicom_fluid_max, 
                 pixel_spacing, slice_thickness
             )
             
-            scn.dicom_soft_volume_ml = calculate_tissue_volume(
+            series.soft_volume_ml = calculate_tissue_volume(
                 vol_array, scn.dicom_soft_min, scn.dicom_soft_max, 
                 pixel_spacing, slice_thickness
             )
             
-            log("Tissue volumes calculated automatically")
+            log(f"Tissue volumes calculated for series {series.series_number}")
             
         except Exception as e:
             log(f"Failed to calculate volumes: {e}")

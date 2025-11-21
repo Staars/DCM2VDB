@@ -7,7 +7,9 @@ from .node_builders import *
 
 def create_volume_material(vol_obj, vol_min, vol_max):
     """Create material for normalized (0-1) VDB data"""
-    mat = bpy.data.materials.new("CT_Volume_Material")
+    # Use series-specific material name based on object name
+    mat_name = vol_obj.name.replace("CT_Volume", "CT_Volume_Material")
+    mat = bpy.data.materials.new(mat_name)
     mat.use_nodes = True
     nodes, links = mat.node_tree.nodes, mat.node_tree.links
     nodes.clear()
