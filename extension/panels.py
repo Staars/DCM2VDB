@@ -272,6 +272,7 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
             context.space_data.image = dicom_img
         
         series_list = eval(scn.dicom_series_data)
+        series = None
         if scn.dicom_preview_series_index < len(series_list):
             series = series_list[scn.dicom_preview_series_index]
             layout.label(text=f"Series: {series.get('description', 'No Description')}", icon='IMAGE_DATA')
@@ -305,6 +306,102 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
         
         layout.separator()
         layout.label(text="Use mouse wheel to scroll", icon='MOUSE_MOVE')
+        
+        # Spatial Information (collapsible)
+        if series:
+            layout.separator()
+            box = layout.box()
+            
+            # Collapsible header
+            row = box.row()
+            row.prop(scn, "dicom_show_spatial_info",
+                icon="TRIA_DOWN" if scn.dicom_show_spatial_info else "TRIA_RIGHT",
+                icon_only=True, emboss=False
+            )
+            row.label(text="Spatial Information", icon='ORIENTATION_GIMBAL')
+            
+            if scn.dicom_show_spatial_info:
+                col = box.column(align=True)
+                
+                # Get series data
+                rows = series.get('rows', 0)
+                cols = series.get('cols', 0)
+                slices = scn.dicom_preview_slice_count
+                
+                # Dimensions section
+                col.separator()
+                col.label(text="Dimensions:", icon='MESH_GRID')
+                col.label(text=f"  Matrix: {cols}×{rows}×{slices}")
+                
+                # Get first file to read spacing and position
+                files = series.get('files', [])
+                if files:
+                    from .dicom_io import load_slice
+                    first_slice = load_slice(files[0])
+                    last_slice = load_slice(files[-1]) if len(files) > 1 else first_slice
+                    
+                    if first_slice:
+                        pixel_spacing = first_slice.get('pixel_spacing', (1.0, 1.0))
+                        slice_thickness = first_slice.get('slice_thickness', 1.0)
+                        
+                        # Calculate FOV
+                        fov_x = cols * pixel_spacing[1]  # pixel_spacing[1] is column spacing
+                        fov_y = rows * pixel_spacing[0]  # pixel_spacing[0] is row spacing
+                        fov_z = slices * slice_thickness
+                        
+                        col.label(text=f"  FOV: {fov_x:.1f}×{fov_y:.1f}×{fov_z:.1f} mm")
+                        col.label(text=f"  Voxel: {pixel_spacing[1]:.3f}×{pixel_spacing[0]:.3f}×{slice_thickness:.3f} mm")
+                        
+                        # Aspect ratio
+                        aspect_x = 1.0
+                        aspect_y = pixel_spacing[0] / pixel_spacing[1]
+                        aspect_z = slice_thickness / pixel_spacing[1]
+                        col.label(text=f"  Aspect: {aspect_x:.2f}:{aspect_y:.2f}:{aspect_z:.2f}")
+                        
+                        # Position section
+                        col.separator()
+                        col.label(text="Position (Patient):", icon='EMPTY_ARROWS')
+                        
+                        position_first = first_slice.get('position', [0, 0, 0])
+                        col.label(text=f"  First: ({position_first[0]:.1f}, {position_first[1]:.1f}, {position_first[2]:.1f}) mm")
+                        
+                        if last_slice and len(files) > 1:
+                            position_last = last_slice.get('position', position_first)
+                            col.label(text=f"  Last: ({position_last[0]:.1f}, {position_last[1]:.1f}, {position_last[2]:.1f}) mm")
+                            
+                            # Calculate center
+                            center = [
+                                (position_first[0] + position_last[0]) / 2,
+                                (position_first[1] + position_last[1]) / 2,
+                                (position_first[2] + position_last[2]) / 2
+                            ]
+                            col.label(text=f"  Center: ({center[0]:.1f}, {center[1]:.1f}, {center[2]:.1f}) mm")
+                        
+                        # Orientation section
+                        col.separator()
+                        col.label(text="Orientation:", icon='ORIENTATION_VIEW')
+                        
+                        orientation = first_slice.get('orientation', [1, 0, 0, 0, 1, 0])
+                        # Determine plane from orientation
+                        import numpy as np
+                        row_cosines = np.array(orientation[:3])
+                        col_cosines = np.array(orientation[3:])
+                        normal = np.cross(row_cosines, col_cosines)
+                        
+                        # Check which axis the normal is closest to
+                        abs_normal = np.abs(normal)
+                        max_idx = np.argmax(abs_normal)
+                        
+                        if max_idx == 0:
+                            plane = "Sagittal"
+                        elif max_idx == 1:
+                            plane = "Coronal"
+                        else:
+                            plane = "Axial"
+                        
+                        col.label(text=f"  Plane: {plane}")
+                        col.label(text=f"  Row: [{orientation[0]:.2f}, {orientation[1]:.2f}, {orientation[2]:.2f}]")
+                        col.label(text=f"  Col: [{orientation[3]:.2f}, {orientation[4]:.2f}, {orientation[5]:.2f}]")
 
 classes = (
     VIEW3D_PT_dicom_patient,

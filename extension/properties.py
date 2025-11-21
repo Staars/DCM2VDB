@@ -57,6 +57,11 @@ def register_scene_props():
         default=True,
         description="Expand/collapse series list"
     )
+    bpy.types.Scene.dicom_show_spatial_info = BoolProperty(
+        name="Show Spatial Info",
+        default=False,
+        description="Expand/collapse spatial information in preview"
+    )
     bpy.types.Scene.dicom_debug_pyramid = BoolProperty(
         name="Create Debug Pyramid",
         default=False,
@@ -241,6 +246,7 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_preview_slice_index
     del bpy.types.Scene.dicom_preview_slice_count
     del bpy.types.Scene.dicom_show_series_list
+    del bpy.types.Scene.dicom_show_spatial_info
     del bpy.types.Scene.dicom_patient_data
     del bpy.types.Scene.dicom_debug_pyramid
     del bpy.types.Scene.dicom_active_tool
