@@ -54,7 +54,7 @@ def create_volume_material(vol_obj, vol_min, vol_max):
     
     # Add intermediate stops
     elem_soft = ramp_color.color_ramp.elements.new(0.5)
-    elem_soft.color = (0.8, 0.4, 0.3, 1.0)  # Reddish for soft tissue
+    elem_soft.color = (0.906, 0.325, 0.204, 1.0)  # Reddish for soft tissue (#E75334)
     
     # Density ramp (controls opacity)
     ramp_density = nodes.new("ShaderNodeValToRGB")

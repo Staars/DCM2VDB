@@ -34,6 +34,10 @@ class IMPORT_OT_dicom_load_patient(Operator):
             return {'CANCELLED'}
         
         try:
+            # Clear patient data FIRST to prevent UI from accessing deleted objects
+            context.scene.dicom_patient_data = ""
+            context.scene.dicom_active_tool = 'NONE'
+            
             # COMPLETE CLEANUP before loading new patient
             self._cleanup_all(context)
             
@@ -76,29 +80,32 @@ class IMPORT_OT_dicom_load_patient(Operator):
         log("COMPLETE CLEANUP - Removing all DICOM data")
         log("=" * 60)
         
-        # 1. Remove all DICOM objects (including all series)
-        dicom_prefixes = ["CT_Volume_S", "CT_Bone_S", "CT_Fat", "CT_Fluid", "CT_SoftTissue", "DEBUG_Pyramid"]
+        # 1. Remove all DICOM objects (old style + multi-series)
         removed_count = 0
         for obj in list(bpy.data.objects):
-            for prefix in dicom_prefixes:
-                if obj.name.startswith(prefix):
-                    bpy.data.objects.remove(obj, do_unlink=True)
-                    log(f"Removed object: {obj.name}")
-                    removed_count += 1
-                    break
+            # Check if it's a DICOM object
+            if (obj.name == "CT_Volume" or obj.name.startswith("CT_Volume_S") or
+                obj.name == "CT_Bone" or obj.name.startswith("CT_Bone_S") or
+                obj.name.startswith("CT_Fat") or obj.name.startswith("CT_Fluid") or
+                obj.name.startswith("CT_SoftTissue") or obj.name.startswith("DEBUG_Pyramid")):
+                obj_name = obj.name  # Save name before removing
+                bpy.data.objects.remove(obj, do_unlink=True)
+                log(f"Removed object: {obj_name}")
+                removed_count += 1
         log(f"Removed {removed_count} DICOM objects")
         
-        # 2. Remove all DICOM materials (including all series)
-        mat_prefixes = ["CT_Volume_Material_S", "CT_Bone_Material_S", "CT_Fat_Material", 
-                       "CT_Fluid_Material", "CT_SoftTissue_Material", "DEBUG_Pyramid_Material"]
+        # 2. Remove all DICOM materials (old style + multi-series)
         removed_mat_count = 0
         for mat in list(bpy.data.materials):
-            for prefix in mat_prefixes:
-                if mat.name.startswith(prefix):
-                    bpy.data.materials.remove(mat)
-                    log(f"Removed material: {mat.name}")
-                    removed_mat_count += 1
-                    break
+            # Check if it's a DICOM material
+            if (mat.name == "CT_Volume_Material" or mat.name.startswith("CT_Volume_Material_S") or
+                mat.name == "CT_Bone_Material" or mat.name.startswith("CT_Bone_Material_S") or
+                mat.name.startswith("CT_Fat_Material") or mat.name.startswith("CT_Fluid_Material") or
+                mat.name.startswith("CT_SoftTissue_Material") or mat.name.startswith("DEBUG_Pyramid_Material")):
+                mat_name = mat.name  # Save name before removing
+                bpy.data.materials.remove(mat)
+                log(f"Removed material: {mat_name}")
+                removed_mat_count += 1
         log(f"Removed {removed_mat_count} DICOM materials")
         
         # 3. Remove preview images
@@ -758,8 +765,87 @@ class IMPORT_OT_dicom_set_tool(Operator):
     
     def execute(self, context):
         context.scene.dicom_active_tool = self.tool
+        
+        # If switching to VISUALIZATION tool, auto-visualize all selected series
+        if self.tool == 'VISUALIZATION' and context.scene.dicom_patient_data:
+            try:
+                patient = Patient.from_json(context.scene.dicom_patient_data)
+                selected_series = [s for s in patient.series if s.is_selected and not s.is_loaded]
+                
+                if selected_series:
+                    self.report({'INFO'}, f"Auto-visualizing {len(selected_series)} selected series...")
+                    
+                    for series in selected_series:
+                        # Build absolute file paths
+                        file_paths = [os.path.join(patient.dicom_root_path, rel_path) 
+                                     for rel_path in series.file_paths]
+                        
+                        # Load slices
+                        from .dicom_io import load_slice
+                        slices = []
+                        for path in file_paths:
+                            slice_data = load_slice(path)
+                            if slice_data is not None:
+                                slices.append(slice_data)
+                        
+                        if len(slices) >= 2:
+                            # Create volume
+                            from .volume import create_volume
+                            vol_obj = create_volume(slices, series_number=series.series_number)
+                            
+                            # Update series state
+                            series.is_loaded = True
+                            series.is_visible = True
+                            
+                            # Store volume object reference
+                            patient.volume_objects[series.series_instance_uid] = vol_obj.name
+                            
+                            # Calculate measurements
+                            self._calculate_volumes_for_series(context, series)
+                            
+                            log(f"Auto-visualized series {series.series_number}")
+                    
+                    # Save updated patient data
+                    context.scene.dicom_patient_data = patient.to_json()
+                    self.report({'INFO'}, f"Visualized {len(selected_series)} series")
+                else:
+                    self.report({'INFO'}, "All selected series already loaded")
+            except Exception as e:
+                log(f"Auto-visualization error: {e}")
+                import traceback
+                traceback.print_exc()
+        
         self.report({'INFO'}, f"Switched to {self.tool} tool")
         return {'FINISHED'}
+    
+    def _calculate_volumes_for_series(self, context, series):
+        """Calculate tissue volumes for a series"""
+        from .measurements import calculate_tissue_volume
+        
+        scn = context.scene
+        if not scn.dicom_volume_data_path or not os.path.exists(scn.dicom_volume_data_path):
+            return
+        
+        try:
+            vol_array = np.load(scn.dicom_volume_data_path)
+            spacing = eval(scn.dicom_volume_spacing)
+            pixel_spacing = (spacing[1], spacing[0])
+            slice_thickness = spacing[2]
+            
+            series.fat_volume_ml = calculate_tissue_volume(
+                vol_array, scn.dicom_fat_min, scn.dicom_fat_max, 
+                pixel_spacing, slice_thickness
+            )
+            series.fluid_volume_ml = calculate_tissue_volume(
+                vol_array, scn.dicom_fluid_min, scn.dicom_fluid_max, 
+                pixel_spacing, slice_thickness
+            )
+            series.soft_volume_ml = calculate_tissue_volume(
+                vol_array, scn.dicom_soft_min, scn.dicom_soft_max, 
+                pixel_spacing, slice_thickness
+            )
+        except Exception as e:
+            log(f"Volume calculation error: {e}")
 
 class IMPORT_OT_dicom_toggle_series_selection(Operator):
     """Toggle series selection for processing"""
@@ -783,6 +869,46 @@ class IMPORT_OT_dicom_toggle_series_selection(Operator):
                 
                 status = "selected" if series.is_selected else "deselected"
                 self.report({'INFO'}, f"Series {series.series_number} {status}")
+            
+            return {'FINISHED'}
+        except:
+            return {'CANCELLED'}
+
+class IMPORT_OT_dicom_toggle_series_visibility(Operator):
+    """Toggle volume/bone visibility for a specific series"""
+    bl_idname = "import.dicom_toggle_series_visibility"
+    bl_label = "Toggle Series Visibility"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    series_uid: StringProperty()
+    visibility_type: StringProperty()  # 'volume' or 'bone'
+    
+    def execute(self, context):
+        if not context.scene.dicom_patient_data:
+            return {'CANCELLED'}
+        
+        try:
+            patient = Patient.from_json(context.scene.dicom_patient_data)
+            series = patient.get_series_by_uid(self.series_uid)
+            
+            if series and series.is_loaded:
+                if self.visibility_type == 'volume':
+                    series.show_volume = not series.show_volume
+                    # Update actual object visibility
+                    vol_obj = bpy.data.objects.get(f"CT_Volume_S{series.series_number}")
+                    if vol_obj:
+                        vol_obj.hide_viewport = not series.show_volume
+                elif self.visibility_type == 'bone':
+                    series.show_bone = not series.show_bone
+                    # Update bone mesh modifier visibility
+                    bone_obj = bpy.data.objects.get(f"CT_Bone_S{series.series_number}")
+                    if bone_obj:
+                        for mod in bone_obj.modifiers:
+                            if mod.type == 'NODES':
+                                mod.show_viewport = series.show_bone
+                                break
+                
+                context.scene.dicom_patient_data = patient.to_json()
             
             return {'FINISHED'}
         except:
@@ -974,6 +1100,7 @@ classes = (
     IMPORT_OT_dicom_preview_series,
     IMPORT_OT_dicom_set_tool,
     IMPORT_OT_dicom_toggle_series_selection,
+    IMPORT_OT_dicom_toggle_series_visibility,
     IMPORT_OT_dicom_recompute_tissues,
     IMPORT_OT_dicom_toggle_display_mode,
     IMPORT_OT_dicom_calculate_volume,

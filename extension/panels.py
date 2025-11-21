@@ -185,26 +185,6 @@ class VIEW3D_PT_dicom_visualization(Panel):
             layout.label(text=f"Error: {e}", icon='ERROR')
             return
         
-        # Global display mode toggle for all loaded volumes
-        loaded_volumes = [obj_name for obj_name in patient.volume_objects.values() 
-                         if bpy.data.objects.get(obj_name)]
-        
-        if loaded_volumes:
-            box = layout.box()
-            box.label(text="Display Mode:", icon='SCENE_DATA')
-            
-            # Volume visibility checkbox
-            row = box.row()
-            row.scale_y = 1.2
-            row.prop(scn, "dicom_show_volume", text="Volume", icon='VOLUME_DATA', toggle=True)
-            
-            # Bone visibility checkbox
-            row = box.row()
-            row.scale_y = 1.2
-            row.prop(scn, "dicom_show_bone", text="Bone", icon='MESH_DATA', toggle=True)
-            
-            layout.separator()
-        
         # Tool-specific actions for each series (ONLY SELECTED SERIES)
         groups = patient.get_series_by_frame_of_reference()
         
@@ -219,12 +199,33 @@ class VIEW3D_PT_dicom_visualization(Panel):
             
             # Series actions (no frame header)
             for series in selected_series:
-                row = box.row()
+                # Series header with visibility toggles
+                row = box.row(align=True)
                 row.label(text=f"Series {series.series_number}")
                 
-                # Visualize button (tool-specific action)
-                op = row.operator(IMPORT_OT_dicom_visualize_series.bl_idname, text="Visualize", icon='PLAY')
-                op.series_uid = series.series_instance_uid
+                # Show visibility toggles if loaded
+                if series.is_loaded:
+                    # Volume toggle
+                    op = row.operator(
+                        "import.dicom_toggle_series_visibility",
+                        text="",
+                        icon='HIDE_OFF' if series.show_volume else 'HIDE_ON',
+                        emboss=False,
+                        depress=series.show_volume
+                    )
+                    op.series_uid = series.series_instance_uid
+                    op.visibility_type = 'volume'
+                    
+                    # Bone toggle
+                    op = row.operator(
+                        "import.dicom_toggle_series_visibility",
+                        text="",
+                        icon='MESH_DATA' if series.show_bone else 'MESH_PLANE',
+                        emboss=False,
+                        depress=series.show_bone
+                    )
+                    op.series_uid = series.series_instance_uid
+                    op.visibility_type = 'bone'
                 
                 # Show measurements if loaded
                 if series.is_loaded:

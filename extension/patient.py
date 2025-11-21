@@ -52,6 +52,8 @@ class SeriesInfo:
     is_loaded: bool = False  # Has VDB been generated?
     is_visible: bool = False  # Is volume visible in viewport?
     is_selected: bool = True  # Is series selected for processing? (default: True)
+    show_volume: bool = True  # Show volume rendering (per-series)
+    show_bone: bool = False  # Show bone mesh (per-series)
     
     # Per-series measurements (in mL)
     fat_volume_ml: float = 0.0
