@@ -41,10 +41,12 @@ def create_volume_material(vol_obj, vol_min, vol_max):
     vol_info = nodes.new("ShaderNodeVolumeInfo")
     vol_info.location = (-400, 0)
     
-    # Calculate normalized air threshold
-    # Air is around -1000 HU, normalize it
-    air_threshold_normalized = (HU_AIR_THRESHOLD - vol_min) / (vol_max - vol_min)
-    log(f"Air threshold: {HU_AIR_THRESHOLD} HU = {air_threshold_normalized:.6f} normalized")
+    # Calculate normalized air threshold using FIXED range
+    # This ensures consistent threshold across all volumes
+    air_threshold_normalized = (HU_AIR_THRESHOLD - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
+    log(f"Using FIXED HU range: {HU_MIN_FIXED} to {HU_MAX_FIXED}")
+    log(f"Actual volume HU range: {vol_min:.1f} to {vol_max:.1f}")
+    log(f"Air threshold: {HU_AIR_THRESHOLD} HU = {air_threshold_normalized:.6f} normalized (fixed range)")
     
     # Math: Threshold mask (air removal)
     math_threshold = nodes.new("ShaderNodeMath")

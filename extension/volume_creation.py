@@ -192,10 +192,13 @@ def create_volume(slices, series_number=1):
     try:
         import openvdb as vdb
         
-        # Normalize to 0-1 range for Blender compatibility
-        # Store the range for later conversion
+        # Normalize to 0-1 range using FIXED HU range for consistency across all volumes
+        # This ensures same tissue types always map to same normalized values
         vol_float = vol.astype(np.float32)
-        vol_normalized = (vol_float - vol_min) / (vol_max - vol_min)
+        vol_normalized = (vol_float - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
+        
+        # Clamp to 0-1 range (in case data exceeds standard range)
+        vol_normalized = np.clip(vol_normalized, 0.0, 1.0)
         
         log(f"Original numpy array shape (Z,Y,X): {vol_float.shape}")
         log(f"This means: {depth} slices of {height}x{width} images")
