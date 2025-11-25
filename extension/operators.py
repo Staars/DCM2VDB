@@ -94,19 +94,16 @@ class IMPORT_OT_dicom_load_patient(Operator):
                 removed_count += 1
         log(f"Removed {removed_count} DICOM objects")
         
-        # 2. Remove all DICOM materials (old style + multi-series)
+        # 2. Remove shared DICOM materials
         removed_mat_count = 0
-        for mat in list(bpy.data.materials):
-            # Check if it's a DICOM material
-            if (mat.name == "CT_Volume_Material" or mat.name.startswith("CT_Volume_Material_S") or
-                mat.name == "CT_Bone_Material" or mat.name.startswith("CT_Bone_Material_S") or
-                mat.name.startswith("CT_Fat_Material") or mat.name.startswith("CT_Fluid_Material") or
-                mat.name.startswith("CT_SoftTissue_Material") or mat.name.startswith("DEBUG_Pyramid_Material")):
-                mat_name = mat.name  # Save name before removing
+        shared_materials = ["CT_Volume_Material", "CT_Bone_Material"]
+        for mat_name in shared_materials:
+            mat = bpy.data.materials.get(mat_name)
+            if mat:
                 bpy.data.materials.remove(mat)
-                log(f"Removed material: {mat_name}")
+                log(f"Removed shared material: {mat_name}")
                 removed_mat_count += 1
-        log(f"Removed {removed_mat_count} DICOM materials")
+        log(f"Removed {removed_mat_count} shared DICOM materials")
         
         # 3. Remove preview images
         preview_img = bpy.data.images.get("DICOM_Preview")

@@ -277,20 +277,14 @@ def create_volume(slices, series_number=1):
     # Create volume material
     create_volume_material(vol_obj, vol_min, vol_max)
     
-    # Clean up old bone object and material if they exist for this series
+    # Clean up old bone object if it exists for this series
     bone_name = f"CT_Bone_S{series_number}"
-    bone_mat_name = f"CT_Bone_Material_S{series_number}"
     
     log(f"Cleaning up old bone objects for series {series_number}...")
     old_bone = bpy.data.objects.get(bone_name)
     if old_bone:
         bpy.data.objects.remove(old_bone, do_unlink=True)
         log(f"Removed old {bone_name} object")
-    
-    old_bone_mat = bpy.data.materials.get(bone_mat_name)
-    if old_bone_mat:
-        bpy.data.materials.remove(old_bone_mat)
-        log(f"Removed old {bone_mat_name}")
     
     # Get bone threshold from scene properties
     scn = bpy.context.scene
@@ -300,52 +294,65 @@ def create_volume(slices, series_number=1):
     log(f"Creating bone mesh (threshold: {bone_min}+ HU)...")
     log("=" * 60)
     
-    # Create bone material with pointiness-based shader
-    log("Creating bone material...")
-    mat_bone = bpy.data.materials.new(bone_mat_name)
-    mat_bone.use_nodes = True
-    nodes = mat_bone.node_tree.nodes
-    links = mat_bone.node_tree.links
-    nodes.clear()
+    # Get or create shared bone material
+    bone_mat_name = "CT_Bone_Material"
+    mat_bone = bpy.data.materials.get(bone_mat_name)
     
-    # Geometry node for pointiness
-    geom = nodes.new('ShaderNodeNewGeometry')
-    geom.location = (-541, 329)
-    
-    # ColorRamp for pointiness → color
-    color_ramp = nodes.new('ShaderNodeValToRGB')
-    color_ramp.location = (-221, 414)
-    
-    # Math node for specular control
-    math_node = nodes.new('ShaderNodeMath')
-    math_node.location = (150, 306)
-    math_node.operation = 'MULTIPLY'
-    math_node.inputs[1].default_value = 0.5  # Scale factor
-    
-    # Mix node for color blending
-    mix = nodes.new('ShaderNodeMix')
-    mix.location = (92, 566)
-    mix.data_type = 'RGBA'
-    mix.inputs['A'].default_value = (0.7, 0.65, 0.55, 1.0)  # Dark bone
-    mix.inputs['B'].default_value = (0.95, 0.92, 0.85, 1.0)  # Light bone
-    
-    # Principled BSDF
-    bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-    bsdf.location = (657, 425)
-    bsdf.inputs['Roughness'].default_value = 0.4
-    
-    # Material Output
-    out = nodes.new('ShaderNodeOutputMaterial')
-    out.location = (1001, 417)
-    
-    # Connect nodes
-    links.new(geom.outputs['Pointiness'], color_ramp.inputs['Fac'])
-    links.new(color_ramp.outputs['Color'], mix.inputs['Factor'])
-    links.new(color_ramp.outputs['Color'], math_node.inputs[0])
-    links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
-    links.new(math_node.outputs['Value'], bsdf.inputs['Specular IOR Level'])
-    links.new(math_node.outputs['Value'], bsdf.inputs['Sheen Weight'])
-    links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+    if mat_bone:
+        log(f"Reusing existing bone material: {bone_mat_name}")
+    else:
+        log(f"Creating new shared bone material: {bone_mat_name}")
+        mat_bone = bpy.data.materials.new(bone_mat_name)
+        # Only create nodes if material is new
+        mat_bone.use_nodes = True
+        nodes = mat_bone.node_tree.nodes
+        links = mat_bone.node_tree.links
+        nodes.clear()
+        
+        # Geometry node for pointiness
+        geom = nodes.new('ShaderNodeNewGeometry')
+        geom.location = (-565.1387, 330.9430)
+        
+        # ColorRamp for pointiness → color
+        color_ramp = nodes.new('ShaderNodeValToRGB')
+        color_ramp.location = (-238.6115, 418.1208)
+        
+        # Configure color ramp stops
+        color_ramp.color_ramp.elements[0].position = 0.414
+        color_ramp.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)  # Black
+        color_ramp.color_ramp.elements[1].position = 0.527
+        color_ramp.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)  # White
+        
+        # Math node for specular/sheen control
+        math_node = nodes.new('ShaderNodeMath')
+        math_node.location = (144.1627, 301.8408)
+        math_node.operation = 'MULTIPLY'
+        math_node.inputs[1].default_value = 0.5  # Scale factor
+        
+        # Mix node for color blending
+        mix = nodes.new('ShaderNodeMix')
+        mix.location = (74.3885, 570.1207)
+        mix.data_type = 'RGBA'
+        mix.inputs['A'].default_value = (0.7, 0.301, 0.117, 1.0)  # Dark bone (more orange/brown)
+        mix.inputs['B'].default_value = (0.95, 0.92, 0.85, 1.0)  # Light bone
+        
+        # Principled BSDF
+        bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+        bsdf.location = (555.0801, 449.8262)
+        bsdf.inputs['Roughness'].default_value = 0.4
+        
+        # Material Output
+        out = nodes.new('ShaderNodeOutputMaterial')
+        out.location = (976.8613, 418.9430)
+        
+        # Connect nodes
+        links.new(geom.outputs['Pointiness'], color_ramp.inputs['Fac'])
+        links.new(color_ramp.outputs['Color'], mix.inputs['Factor'])
+        links.new(color_ramp.outputs['Color'], math_node.inputs[0])
+        links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
+        links.new(math_node.outputs['Value'], bsdf.inputs['Specular IOR Level'])
+        links.new(math_node.outputs['Value'], bsdf.inputs['Sheen Weight'])
+        links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
     
     # Create bone mesh object
     log("Creating bone mesh object...")
