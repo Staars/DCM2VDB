@@ -4,6 +4,7 @@ import bpy
 from .dicom_io import log
 from .constants import *
 from .node_builders import *
+from .volume_utils import hu_to_normalized
 
 def create_volume_material(vol_obj, vol_min, vol_max):
     """Create or reuse shared CT volume material for normalized (0-1) VDB data"""
@@ -50,76 +51,77 @@ def create_volume_material(vol_obj, vol_min, vol_max):
     
     # Math: Threshold mask (air removal)
     math_threshold = nodes.new("ShaderNodeMath")
-    math_threshold.location = (-392.4792, 359.1090)
+    math_threshold.location = (-87.0482, 246.0720)
     math_threshold.operation = 'GREATER_THAN'
     math_threshold.inputs[1].default_value = air_threshold_normalized
     math_threshold.label = "Air_Threshold"
     
-    # Color Ramp: Tissue colors with multiple stops
+    # Color Ramp: Tissue colors with sharp transitions (2 stops per tissue)
     ramp_color = nodes.new("ShaderNodeValToRGB")
-    ramp_color.location = (-97.6240, -54.9656)
+    ramp_color.location = (-95.5784, -31.2797)
     ramp_color.label = "Tissue_Colors"
     
-    # Configure color stops (5 stops for detailed tissue coloring)
-    ramp_color.color_ramp.elements[0].position = 0.105
-    ramp_color.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)  # Black (air)
+    # Calculate normalized positions from HU values
+    fat_start_pos = hu_to_normalized(HU_FAT_MIN)
+    fat_end_pos = hu_to_normalized(HU_FAT_MAX)
+    soft_start_pos = hu_to_normalized(HU_SOFT_MIN)
+    soft_end_pos = hu_to_normalized(HU_SOFT_MAX)
+    bone_start_pos = hu_to_normalized(HU_BONE_MIN)
+    bone_end_pos = hu_to_normalized(HU_BONE_MAX)
     
-    ramp_color.color_ramp.elements[1].position = 0.218
-    ramp_color.color_ramp.elements[1].color = (0.776, 0.565, 0.018, 0.405)  # Yellow/fat
+    log(f"Tissue positions (normalized):")
+    log(f"  Fat: {fat_start_pos:.4f} - {fat_end_pos:.4f} (HU {HU_FAT_MIN} - {HU_FAT_MAX})")
+    log(f"  Soft: {soft_start_pos:.4f} - {soft_end_pos:.4f} (HU {HU_SOFT_MIN} - {HU_SOFT_MAX})")
+    log(f"  Bone: {bone_start_pos:.4f} - {bone_end_pos:.4f} (HU {HU_BONE_MIN} - {HU_BONE_MAX})")
     
-    # Add more stops
-    elem_2 = ramp_color.color_ramp.elements.new(0.249)
-    elem_2.color = (0.68, 0.008, 0.0, 0.868)  # Dark red
+    # Configure color stops for sharp tissue boundaries
+    # Air/Background (before fat)
+    air_pos = hu_to_normalized(HU_AIR_THRESHOLD)
+    ramp_color.color_ramp.elements[0].position = air_pos
+    ramp_color.color_ramp.elements[0].color = (*COLOR_AIR_RGB, 0.0)  # Black transparent
     
-    elem_3 = ramp_color.color_ramp.elements.new(0.305)
-    elem_3.color = (0.906, 0.071, 0.029, 0.666)  # Bright red/soft tissue
+    # Fat tissue (sharp transition)
+    ramp_color.color_ramp.elements[1].position = fat_start_pos
+    ramp_color.color_ramp.elements[1].color = (*COLOR_AIR_RGB, 0.0)  # Fat START - transparent
     
-    elem_4 = ramp_color.color_ramp.elements.new(0.411)
-    elem_4.color = (1.0, 1.0, 1.0, 1.0)  # White (bone)
+    elem_fat_end = ramp_color.color_ramp.elements.new(fat_end_pos)
+    elem_fat_end.color = (*COLOR_FAT_RGB, ALPHA_FAT_DEFAULT)  # Fat END - yellow opaque
     
-    # Color Ramp.001: Density ramp
-    ramp_density = nodes.new("ShaderNodeValToRGB")
-    ramp_density.location = (-193.3591, 220.9367)
-    ramp_density.label = "Density_Ramp"
+    # Soft tissue (sharp transition)
+    elem_soft_start = ramp_color.color_ramp.elements.new(soft_start_pos)
+    elem_soft_start.color = (*COLOR_FAT_RGB, 0.0)  # Soft START - transparent (blend from fat color)
     
-    # Simple 0-1 gradient
-    ramp_density.color_ramp.elements[0].position = 0.0
-    ramp_density.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
-    ramp_density.color_ramp.elements[1].position = 1.0
-    ramp_density.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
+    elem_soft_end = ramp_color.color_ramp.elements.new(soft_end_pos)
+    elem_soft_end.color = (*COLOR_SOFT_RGB, ALPHA_SOFT_DEFAULT)  # Soft END - red opaque
     
-    # Math.001: Multiply threshold with density color
-    math_001 = nodes.new("ShaderNodeMath")
-    math_001.location = (159.4760, 394.2954)
-    math_001.operation = 'MULTIPLY'
-    math_001.label = "Apply_Threshold"
+    # Bone (sharp transition)
+    elem_bone_start = ramp_color.color_ramp.elements.new(bone_start_pos)
+    elem_bone_start.color = (*COLOR_SOFT_RGB, 0.0)  # Bone START - transparent (blend from soft color)
     
-    # Math.002: Scale alpha by 300
+    elem_bone_end = ramp_color.color_ramp.elements.new(bone_end_pos)
+    elem_bone_end.color = (*COLOR_BONE_RGB, ALPHA_BONE_DEFAULT)  # Bone END - white opaque
+    
+    # Math.002: Scale alpha by 600
     math_002 = nodes.new("ShaderNodeMath")
-    math_002.location = (131.4298, 120.4075)
+    math_002.location = (243.4801, 83.9188)
     math_002.operation = 'MULTIPLY'
-    math_002.inputs[1].default_value = 300.0
+    math_002.inputs[1].default_value = 600.0
     math_002.label = "Alpha_Scale"
     
-    # Math.003: Final multiply
+    # Math.003: Final multiply (threshold × alpha)
     math_003 = nodes.new("ShaderNodeMath")
-    math_003.location = (349.4558, 181.9858)
+    math_003.location = (482.8159, 169.0526)
     math_003.operation = 'MULTIPLY'
     math_003.label = "Final_Density"
     
     # Connections
     links.new(vol_info.outputs["Density"], math_threshold.inputs[0])
     links.new(vol_info.outputs["Density"], ramp_color.inputs["Fac"])
-    links.new(vol_info.outputs["Density"], ramp_density.inputs["Fac"])
     
-    # Density path
-    links.new(ramp_density.outputs["Color"], math_001.inputs[0])
-    links.new(math_threshold.outputs["Value"], math_001.inputs[1])
-    links.new(ramp_density.outputs["Alpha"], math_002.inputs[0])
-    
-    # Combine
-    links.new(math_001.outputs["Value"], math_003.inputs[0])
-    links.new(math_002.outputs["Value"], math_003.inputs[1])
+    # Density path: Color Ramp Alpha → Scale → Combine with Threshold
+    links.new(ramp_color.outputs["Alpha"], math_002.inputs[0])
+    links.new(math_002.outputs["Value"], math_003.inputs[0])
+    links.new(math_threshold.outputs["Value"], math_003.inputs[1])
     
     # Output
     links.new(math_003.outputs["Value"], prin.inputs["Density"])

@@ -3,6 +3,7 @@
 import bpy
 from bpy.props import StringProperty, FloatProperty, IntProperty, CollectionProperty, BoolProperty, EnumProperty
 from bpy.types import PropertyGroup
+from .constants import ALPHA_FAT_DEFAULT, ALPHA_SOFT_DEFAULT, ALPHA_BONE_DEFAULT
 
 class DicomSeriesProperty(PropertyGroup):
     """Properties for a single DICOM series"""
@@ -34,6 +35,53 @@ def update_tissue_visibility(self, context, tissue_prefix, prop_name):
                 if mod.type == 'NODES':
                     mod.show_viewport = show
                     break
+
+def update_tissue_alpha(self, context):
+    """Update alpha values in volume material color ramp (both START and END stops per tissue)"""
+    mat = bpy.data.materials.get("CT_Volume_Material")
+    if not mat or not mat.use_nodes:
+        return
+    
+    # Find the color ramp node
+    color_ramp = None
+    for node in mat.node_tree.nodes:
+        if node.type == 'VALTORGB' and node.label == "Tissue_Colors":
+            color_ramp = node
+            break
+    
+    if not color_ramp:
+        return
+    
+    # Update alpha values for each tissue
+    # Each tissue has START (transparent) and END (slider value) stops
+    # Stop 0: Air threshold - transparent
+    # Stop 1: Fat START - transparent
+    # Stop 2: Fat END - controlled by fat slider
+    # Stop 3: Soft START - controlled by fat slider (transition from fat)
+    # Stop 4: Soft END - controlled by soft slider
+    # Stop 5: Bone START - controlled by soft slider (transition from soft)
+    # Stop 6: Bone END - controlled by bone slider
+    
+    elements = color_ramp.color_ramp.elements
+    if len(elements) >= 7:
+        fat_alpha = context.scene.dicom_tissue_alpha_fat
+        soft_alpha = context.scene.dicom_tissue_alpha_soft
+        bone_alpha = context.scene.dicom_tissue_alpha_bone
+        
+        # Fat END (stop 2) - uses fat slider
+        elements[2].color = (elements[2].color[0], elements[2].color[1], elements[2].color[2], fat_alpha)
+        
+        # Soft START (stop 3) - uses fat slider (transition from fat color)
+        elements[3].color = (elements[3].color[0], elements[3].color[1], elements[3].color[2], fat_alpha)
+        
+        # Soft END (stop 4) - uses soft slider
+        elements[4].color = (elements[4].color[0], elements[4].color[1], elements[4].color[2], soft_alpha)
+        
+        # Bone START (stop 5) - uses soft slider (transition from soft color)
+        elements[5].color = (elements[5].color[0], elements[5].color[1], elements[5].color[2], soft_alpha)
+        
+        # Bone END (stop 6) - uses bone slider
+        elements[6].color = (elements[6].color[0], elements[6].color[1], elements[6].color[2], bone_alpha)
 
 def register_scene_props():
     """Register scene properties"""
@@ -200,6 +248,32 @@ def register_scene_props():
         update=lambda self, context: update_tissue_visibility(self, context, "CT_Bone_S", "dicom_show_bone")
     )
     
+    # Tissue opacity controls (for volume material color ramp alpha)
+    bpy.types.Scene.dicom_tissue_alpha_fat = FloatProperty(
+        name="Fat",
+        default=ALPHA_FAT_DEFAULT,
+        min=0.0,
+        max=1.0,
+        description="Opacity of fat tissue in volume rendering",
+        update=lambda self, context: update_tissue_alpha(self, context)
+    )
+    bpy.types.Scene.dicom_tissue_alpha_soft = FloatProperty(
+        name="Soft Tissue",
+        default=ALPHA_SOFT_DEFAULT,
+        min=0.0,
+        max=1.0,
+        description="Opacity of soft tissue in volume rendering",
+        update=lambda self, context: update_tissue_alpha(self, context)
+    )
+    bpy.types.Scene.dicom_tissue_alpha_bone = FloatProperty(
+        name="Bone",
+        default=ALPHA_BONE_DEFAULT,
+        min=0.0,
+        max=1.0,
+        description="Opacity of bone in volume rendering",
+        update=lambda self, context: update_tissue_alpha(self, context)
+    )
+    
     # Measurement results
     bpy.types.Scene.dicom_fat_volume_ml = FloatProperty(
         name="Fat Volume",
@@ -268,6 +342,9 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_show_fluid
     del bpy.types.Scene.dicom_show_soft
     del bpy.types.Scene.dicom_show_bone
+    del bpy.types.Scene.dicom_tissue_alpha_fat
+    del bpy.types.Scene.dicom_tissue_alpha_soft
+    del bpy.types.Scene.dicom_tissue_alpha_bone
     del bpy.types.Scene.dicom_fat_volume_ml
     del bpy.types.Scene.dicom_fluid_volume_ml
     del bpy.types.Scene.dicom_soft_volume_ml

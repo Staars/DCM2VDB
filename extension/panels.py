@@ -185,6 +185,19 @@ class VIEW3D_PT_dicom_visualization(Panel):
             layout.label(text=f"Error: {e}", icon='ERROR')
             return
         
+        # Tissue opacity controls (if volume material exists)
+        if bpy.data.materials.get("CT_Volume_Material"):
+            layout.separator()
+            box = layout.box()
+            box.label(text="Tissue Opacity:", icon='SHADING_RENDERED')
+            
+            col = box.column(align=True)
+            col.prop(scn, "dicom_tissue_alpha_fat", slider=True)
+            col.prop(scn, "dicom_tissue_alpha_soft", slider=True)
+            col.prop(scn, "dicom_tissue_alpha_bone", slider=True)
+            
+            layout.separator()
+        
         # Tool-specific actions for each series (ONLY SELECTED SERIES)
         groups = patient.get_series_by_frame_of_reference()
         

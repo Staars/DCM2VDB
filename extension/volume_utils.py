@@ -34,9 +34,10 @@ def clean_old_volumes(name_prefix="CT_Volume"):
         if v.name.startswith(name_prefix): 
             bpy.data.volumes.remove(v, do_unlink=True)
 
-def hu_to_normalized(hu_value, vol_min, vol_max):
-    """Convert Hounsfield unit to normalized 0-1 range"""
-    return max(0.0, min(1.0, (hu_value - vol_min) / (vol_max - vol_min)))
+def hu_to_normalized(hu_value):
+    """Convert Hounsfield Unit to normalized 0-1 value using fixed range"""
+    from .constants import HU_MIN_FIXED, HU_MAX_FIXED
+    return (hu_value - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
 
 def save_debug_slice(volume_array, output_name="dicom_middle_slice_debug.png"):
     """Save middle slice of volume as PNG for debugging"""
