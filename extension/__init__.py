@@ -82,8 +82,6 @@ if "bpy" in locals():
         importlib.reload(constants)
     if "volume_utils" in locals():
         importlib.reload(volume_utils)
-    if "node_builders" in locals():
-        importlib.reload(node_builders)
     if "materials" in locals():
         importlib.reload(materials)
     if "geometry_nodes" in locals():

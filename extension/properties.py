@@ -3,38 +3,8 @@
 import bpy
 from bpy.props import StringProperty, FloatProperty, IntProperty, CollectionProperty, BoolProperty, EnumProperty
 from bpy.types import PropertyGroup
-from .constants import ALPHA_FAT_DEFAULT, ALPHA_SOFT_DEFAULT, ALPHA_BONE_DEFAULT
 
-class DicomSeriesProperty(PropertyGroup):
-    """Properties for a single DICOM series"""
-    uid: StringProperty()
-    description: StringProperty()
-    modality: StringProperty()
-    number: IntProperty()
-    instance_count: IntProperty()
-    rows: IntProperty()
-    cols: IntProperty()
-    window_center: FloatProperty()
-    window_width: FloatProperty()
-
-class DicomTissueAlphaProperty(PropertyGroup):
-    """Dynamic tissue alpha property"""
-    tissue_name: StringProperty(
-        name="Tissue Name",
-        description="Internal tissue identifier"
-    )
-    tissue_label: StringProperty(
-        name="Tissue Label",
-        description="Display label for tissue"
-    )
-    alpha: FloatProperty(
-        name="Alpha",
-        default=1.0,
-        min=0.0,
-        max=1.0,
-        description="Opacity of tissue in volume rendering",
-        update=lambda self, context: update_tissue_alpha_dynamic(self, context)
-    )
+# Update callbacks must be defined BEFORE the PropertyGroup classes that use them
 
 def update_volume_visibility(self, context):
     """Update volume object visibility for all series"""
@@ -43,22 +13,18 @@ def update_volume_visibility(self, context):
         if obj.name.startswith("CT_Volume_S"):
             obj.hide_viewport = not context.scene.dicom_show_volume
 
-def update_tissue_visibility(self, context, tissue_prefix, prop_name):
-    """Update tissue mesh visibility for all series"""
-    show = getattr(context.scene, prop_name)
-    # Find all objects matching the tissue prefix (e.g., CT_Bone_S*)
-    for obj in bpy.data.objects:
-        if obj.name.startswith(tissue_prefix):
-            # Toggle geometry nodes modifier
-            for mod in obj.modifiers:
-                if mod.type == 'NODES':
-                    mod.show_viewport = show
-                    break
-
 def update_tissue_alpha_dynamic(self, context):
     """Update alpha values in volume material color ramp dynamically based on preset"""
+    
+    # Skip updates during initialization
+    if context.scene.get("_dicom_initializing", False):
+        return
+    
+    print(f"[Properties] update_tissue_alpha_dynamic called for tissue: {self.tissue_name}, alpha: {self.alpha}")
+    
     mat = bpy.data.materials.get("CT_Volume_Material")
     if not mat or not mat.use_nodes:
+        print("[Properties] No CT_Volume_Material found or nodes not enabled")
         return
     
     # Find the color ramp node
@@ -132,6 +98,39 @@ def update_tissue_alpha_dynamic(self, context):
         
         prev_alpha = tissue_alpha
 
+# PropertyGroup classes (defined after update callbacks)
+
+class DicomSeriesProperty(PropertyGroup):
+    """Properties for a single DICOM series"""
+    uid: StringProperty()
+    description: StringProperty()
+    modality: StringProperty()
+    number: IntProperty()
+    instance_count: IntProperty()
+    rows: IntProperty()
+    cols: IntProperty()
+    window_center: FloatProperty()
+    window_width: FloatProperty()
+
+class DicomTissueAlphaProperty(PropertyGroup):
+    """Dynamic tissue alpha property"""
+    tissue_name: StringProperty(
+        name="Tissue Name",
+        description="Internal tissue identifier"
+    )
+    tissue_label: StringProperty(
+        name="Tissue Label",
+        description="Display label for tissue"
+    )
+    alpha: FloatProperty(
+        name="Alpha",
+        default=1.0,
+        min=0.0,
+        max=1.0,
+        description="Opacity of tissue in volume rendering",
+        update=update_tissue_alpha_dynamic
+    )
+
 def register_scene_props():
     """Register scene properties"""
     bpy.types.Scene.dicom_import_folder = StringProperty(
@@ -158,11 +157,6 @@ def register_scene_props():
         name="Show Spatial Info",
         default=False,
         description="Expand/collapse spatial information in preview"
-    )
-    bpy.types.Scene.dicom_debug_pyramid = BoolProperty(
-        name="Create Debug Pyramid",
-        default=False,
-        description="Create test pyramid with each import for comparison"
     )
     
     # Patient data (JSON serialized)
@@ -202,55 +196,7 @@ def register_scene_props():
         default='NONE'
     )
     
-    # Tissue threshold settings
-    bpy.types.Scene.dicom_show_tissue_thresholds = BoolProperty(
-        name="Show Tissue Thresholds",
-        default=False,
-        description="Expand/collapse tissue threshold settings"
-    )
-    
-    # Fat thresholds
-    bpy.types.Scene.dicom_fat_min = FloatProperty(
-        name="Fat Min",
-        default=-160.0,
-        description="Minimum HU value for fat tissue"
-    )
-    bpy.types.Scene.dicom_fat_max = FloatProperty(
-        name="Fat Max",
-        default=0.0,
-        description="Maximum HU value for fat tissue"
-    )
-    
-    # Fluid thresholds
-    bpy.types.Scene.dicom_fluid_min = FloatProperty(
-        name="Fluid Min",
-        default=0.0,
-        description="Minimum HU value for fluid"
-    )
-    bpy.types.Scene.dicom_fluid_max = FloatProperty(
-        name="Fluid Max",
-        default=30.0,
-        description="Maximum HU value for fluid"
-    )
-    
-    # Soft tissue thresholds
-    bpy.types.Scene.dicom_soft_min = FloatProperty(
-        name="Soft Tissue Min",
-        default=35.0,
-        description="Minimum HU value for soft tissue"
-    )
-    bpy.types.Scene.dicom_soft_max = FloatProperty(
-        name="Soft Tissue Max",
-        default=100.0,
-        description="Maximum HU value for soft tissue"
-    )
-    
-    # Bone threshold
-    bpy.types.Scene.dicom_bone_min = FloatProperty(
-        name="Bone Min",
-        default=400.0,
-        description="Minimum HU value for bone"
-    )
+
     
     # Volume data cache (for recomputation)
     bpy.types.Scene.dicom_volume_data_path = StringProperty(
@@ -286,72 +232,44 @@ def register_scene_props():
         description="Show/hide the main volume",
         update=update_volume_visibility
     )
-    bpy.types.Scene.dicom_show_fat = BoolProperty(
-        name="Show Fat Mesh",
-        default=False,
-        description="Show/hide fat tissue mesh",
-        update=lambda self, context: update_tissue_visibility(self, context, "CT_Fat", "dicom_show_fat")
-    )
-    bpy.types.Scene.dicom_show_fluid = BoolProperty(
-        name="Show Fluid Mesh",
-        default=False,
-        description="Show/hide fluid mesh",
-        update=lambda self, context: update_tissue_visibility(self, context, "CT_Fluid", "dicom_show_fluid")
-    )
-    bpy.types.Scene.dicom_show_soft = BoolProperty(
-        name="Show Soft Tissue Mesh",
-        default=False,
-        description="Show/hide soft tissue mesh",
-        update=lambda self, context: update_tissue_visibility(self, context, "CT_SoftTissue", "dicom_show_soft")
-    )
-    bpy.types.Scene.dicom_show_bone = BoolProperty(
-        name="Show Bone Mesh",
-        default=False,
-        description="Show/hide bone mesh",
-        update=lambda self, context: update_tissue_visibility(self, context, "CT_Bone_S", "dicom_show_bone")
-    )
     
 
     
-    # Measurement results
-    bpy.types.Scene.dicom_fat_volume_ml = FloatProperty(
-        name="Fat Volume",
-        default=0.0,
-        description="Calculated fat tissue volume in mL",
-        precision=2
-    )
-    bpy.types.Scene.dicom_fluid_volume_ml = FloatProperty(
-        name="Fluid Volume",
-        default=0.0,
-        description="Calculated fluid volume in mL",
-        precision=2
-    )
-    bpy.types.Scene.dicom_soft_volume_ml = FloatProperty(
-        name="Soft Tissue Volume",
-        default=0.0,
-        description="Calculated soft tissue volume in mL",
-        precision=2
-    )
-    
-    # Measurement mask visibility
-    bpy.types.Scene.dicom_show_fat_mask = BoolProperty(
-        name="Show Fat Mask",
-        default=False,
-        description="Show/hide fat measurement mask"
-    )
-    bpy.types.Scene.dicom_show_fluid_mask = BoolProperty(
-        name="Show Fluid Mask",
-        default=False,
-        description="Show/hide fluid measurement mask"
-    )
-    bpy.types.Scene.dicom_show_soft_mask = BoolProperty(
-        name="Show Soft Mask",
-        default=False,
-        description="Show/hide soft tissue measurement mask"
-    )
 
-def initialize_tissue_alphas(context, preset_name="ct_standard"):
-    """Initialize tissue alpha collection from preset"""
+
+def get_tissue_thresholds_from_preset(preset_name="ct_standard"):
+    """Get tissue HU thresholds from active preset
+    
+    Returns dict: {
+        'fat': {'min': -120, 'max': -90},
+        'liquid': {'min': 0, 'max': 25},
+        'soft_tissue': {'min': 35, 'max': 70},
+        'connective_tissue': {'min': 75, 'max': 90},
+        'bone': {'min': 400, 'max': 1000}
+    }
+    """
+    from .material_presets import load_preset
+    
+    preset = load_preset(preset_name)
+    if not preset:
+        return {}
+    
+    thresholds = {}
+    for tissue in preset.tissues:
+        thresholds[tissue['name']] = {
+            'min': tissue.get('hu_min', 0),
+            'max': tissue.get('hu_max', 0)
+        }
+    return thresholds
+
+def initialize_tissue_alphas(context, preset_name="ct_standard", silent=False):
+    """Initialize tissue alpha collection from preset
+    
+    Args:
+        context: Blender context
+        preset_name: Name of preset to load
+        silent: If True, suppress update callbacks during initialization
+    """
     from .material_presets import load_preset
     
     preset = load_preset(preset_name)
@@ -362,12 +280,20 @@ def initialize_tissue_alphas(context, preset_name="ct_standard"):
     # Clear existing alphas
     context.scene.dicom_tissue_alphas.clear()
     
+    # Temporarily disable updates by setting a flag
+    if silent:
+        context.scene["_dicom_initializing"] = True
+    
     # Add tissue alphas from preset (tissues are already sorted by order)
     for tissue in preset.tissues:
         tissue_alpha = context.scene.dicom_tissue_alphas.add()
         tissue_alpha.tissue_name = tissue.get('name', '')
         tissue_alpha.tissue_label = tissue.get('label', tissue.get('name', '').title())
         tissue_alpha.alpha = tissue.get('alpha_default', 1.0)
+    
+    # Re-enable updates
+    if silent and "_dicom_initializing" in context.scene:
+        del context.scene["_dicom_initializing"]
     
     # Store active preset name
     context.scene.dicom_active_material_preset = preset_name
@@ -385,34 +311,15 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_show_series_list
     del bpy.types.Scene.dicom_show_spatial_info
     del bpy.types.Scene.dicom_patient_data
-    del bpy.types.Scene.dicom_debug_pyramid
     del bpy.types.Scene.dicom_active_tool
-    del bpy.types.Scene.dicom_show_tissue_thresholds
-    del bpy.types.Scene.dicom_fat_min
-    del bpy.types.Scene.dicom_fat_max
-    del bpy.types.Scene.dicom_fluid_min
-    del bpy.types.Scene.dicom_fluid_max
-    del bpy.types.Scene.dicom_soft_min
-    del bpy.types.Scene.dicom_soft_max
-    del bpy.types.Scene.dicom_bone_min
     del bpy.types.Scene.dicom_volume_data_path
     del bpy.types.Scene.dicom_volume_spacing
     del bpy.types.Scene.dicom_volume_unique_id
     del bpy.types.Scene.dicom_volume_hu_min
     del bpy.types.Scene.dicom_volume_hu_max
     del bpy.types.Scene.dicom_show_volume
-    del bpy.types.Scene.dicom_show_fat
-    del bpy.types.Scene.dicom_show_fluid
-    del bpy.types.Scene.dicom_show_soft
-    del bpy.types.Scene.dicom_show_bone
     del bpy.types.Scene.dicom_active_material_preset
     del bpy.types.Scene.dicom_tissue_alphas
-    del bpy.types.Scene.dicom_fat_volume_ml
-    del bpy.types.Scene.dicom_fluid_volume_ml
-    del bpy.types.Scene.dicom_soft_volume_ml
-    del bpy.types.Scene.dicom_show_fat_mask
-    del bpy.types.Scene.dicom_show_fluid_mask
-    del bpy.types.Scene.dicom_show_soft_mask
 
 classes = (
     DicomSeriesProperty,
@@ -423,6 +330,17 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     register_scene_props()
+    
+    # Initialize tissue alphas from default preset at startup
+    # This ensures the collection is populated and callbacks are active
+    # Use a deferred call to ensure scene is ready
+    def init_on_startup():
+        if bpy.context.scene:
+            initialize_tissue_alphas(bpy.context, "ct_standard", silent=True)
+            print("[Properties] Initialized tissue alphas at addon startup")
+        return None  # Run once and stop
+    
+    bpy.app.timers.register(init_on_startup, first_interval=0.1)
 
 def unregister():
     unregister_scene_props()

@@ -55,10 +55,9 @@ class SeriesInfo:
     show_volume: bool = True  # Show volume rendering (per-series)
     show_bone: bool = False  # Show bone mesh (per-series)
     
-    # Per-series measurements (in mL)
-    fat_volume_ml: float = 0.0
-    fluid_volume_ml: float = 0.0
-    soft_volume_ml: float = 0.0
+    # Per-series measurements (dynamic based on preset)
+    # Dict mapping tissue name to volume in mL: {'fat': 123.45, 'liquid': 67.89, ...}
+    tissue_volumes: dict = field(default_factory=dict)
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""

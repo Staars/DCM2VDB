@@ -1,59 +1,70 @@
 {
-  "name": "CT_Volume_Standard",
-  "description": "Standard CT volume rendering with tissue differentiation",
-  "modality": "CT",
-  "version": "1.0",
-  "hu_range": {
-    "min": -1024,
-    "max": 3071
+  "header": {
+    "name": "CT_Volume_Standard",
+    "description": "Standard CT volume rendering with tissue differentiation",
+    "modality": "CT",
+    "version": "1.0"
   },
-  "air_threshold": -200,
-  "density_multiplier": 600,
-  "tissues": [
-    {
-      "name": "fat",
-      "label": "Fat",
-      "hu_min": -120,
-      "hu_max": -90,
-      "color_rgb": [0.776, 0.565, 0.018],
-      "alpha_default": 0.059,
-      "order": 1
+  "volume": {
+    "hu_range": {
+      "min": -1024,
+      "max": 3071
     },
-    {
-      "name": "liquid",
-      "label": "Liquid",
-      "hu_min": 0,
-      "hu_max": 25,
-      "color_rgb": [0.2, 0.5, 0.9],
-      "alpha_default": 0.05,
-      "order": 2
-    },
-    {
-      "name": "soft_tissue",
-      "label": "Soft Tissue",
-      "hu_min": 35,
-      "hu_max": 70,
-      "color_rgb": [0.906, 0.071, 0.029],
-      "alpha_default": 1.0,
-      "order": 3
-    },
-    {
-      "name": "connective_tissue",
-      "label": "Connective Tissue",
-      "hu_min": 75,
-      "hu_max": 90,
-      "color_rgb": [0.8, 0.6, 0.4],
-      "alpha_default": 1.0,
-      "order": 4
-    },
+    "air_threshold": -200,
+    "density_multiplier": 600,
+    "tissues": [
+      {
+        "name": "fat",
+        "label": "Fat",
+        "hu_min": -120,
+        "hu_max": -90,
+        "color_rgb": [0.776, 0.565, 0.018],
+        "alpha_default": 0.059,
+        "order": 1
+      },
+      {
+        "name": "liquid",
+        "label": "Liquid",
+        "hu_min": 0,
+        "hu_max": 25,
+        "color_rgb": [0.2, 0.5, 0.9],
+        "alpha_default": 0.05,
+        "order": 2
+      },
+      {
+        "name": "soft_tissue",
+        "label": "Soft Tissue",
+        "hu_min": 35,
+        "hu_max": 70,
+        "color_rgb": [0.906, 0.071, 0.029],
+        "alpha_default": 1.0,
+        "order": 3
+      },
+      {
+        "name": "connective_tissue",
+        "label": "Connective Tissue",
+        "hu_min": 75,
+        "hu_max": 90,
+        "color_rgb": [0.8, 0.6, 0.4],
+        "alpha_default": 1.0,
+        "order": 4
+      },
+      {
+        "name": "bone",
+        "label": "Bone",
+        "hu_min": 400,
+        "hu_max": 1000,
+        "color_rgb": [1.0, 1.0, 1.0],
+        "alpha_default": 1.0,
+        "order": 5
+      }
+    ]
+  },
+  "mesh": [
     {
       "name": "bone",
       "label": "Bone",
-      "hu_min": 400,
-      "hu_max": 1000,
-      "color_rgb": [1.0, 1.0, 1.0],
-      "alpha_default": 1.0,
-      "order": 5
+      "threshold": 300
     }
   ]
 }

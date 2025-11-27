@@ -280,10 +280,12 @@ def create_volume(slices, series_number=1):
     # Create volume material
     create_volume_material(vol_obj, vol_min, vol_max)
     
-    # Initialize tissue alphas in scene properties if not already done
+    # Tissue alphas should already be initialized at addon startup
+    # But reinitialize if collection is empty (shouldn't happen)
     if len(bpy.context.scene.dicom_tissue_alphas) == 0:
         from .properties import initialize_tissue_alphas
         initialize_tissue_alphas(bpy.context, "ct_standard")
+        print("[Volume Creation] WARNING: Had to reinitialize tissue alphas")
     
     # Clean up old bone object if it exists for this series
     bone_name = f"CT_Bone_S{series_number}"
@@ -294,12 +296,15 @@ def create_volume(slices, series_number=1):
         bpy.data.objects.remove(old_bone, do_unlink=True)
         log(f"Removed old {bone_name} object")
     
-    # Get bone threshold from scene properties
-    scn = bpy.context.scene
-    bone_min = scn.dicom_bone_min
+    # Get bone threshold from material preset
+    from .material_presets import load_preset
+    preset = load_preset("ct_standard")
+    
+    bone_mesh = preset.get_mesh("bone") if preset else None
+    bone_min = bone_mesh.get("threshold", 400) if bone_mesh else 400
     
     log("=" * 60)
-    log(f"Creating bone mesh (threshold: {bone_min}+ HU)...")
+    log(f"Creating bone mesh (threshold: {bone_min}+ HU from preset)...")
     log("=" * 60)
     
     # Get or create shared bone material

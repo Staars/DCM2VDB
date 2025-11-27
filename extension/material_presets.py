@@ -8,23 +8,31 @@ class MaterialPreset:
     """Represents a volume material preset"""
     
     def __init__(self, data):
-        self.name = data.get("name", "Unknown")
-        self.description = data.get("description", "")
-        self.modality = data.get("modality", "CT")
-        self.version = data.get("version", "1.0")
+        # Header section
+        header = data.get("header", {})
+        self.name = header.get("name", data.get("name", "Unknown"))
+        self.description = header.get("description", data.get("description", ""))
+        self.modality = header.get("modality", data.get("modality", "CT"))
+        self.version = header.get("version", data.get("version", "1.0"))
+        
+        # Volume section
+        volume = data.get("volume", data)  # Fallback to root for backward compatibility
         
         # HU range
-        hu_range = data.get("hu_range", {})
+        hu_range = volume.get("hu_range", {})
         self.hu_min = hu_range.get("min", -1024)
         self.hu_max = hu_range.get("max", 3071)
         
         # Rendering settings
-        self.air_threshold = data.get("air_threshold", -200)
-        self.density_multiplier = data.get("density_multiplier", 600)
+        self.air_threshold = volume.get("air_threshold", -200)
+        self.density_multiplier = volume.get("density_multiplier", 600)
         
         # Tissues (sorted by order)
-        tissues_data = data.get("tissues", [])
+        tissues_data = volume.get("tissues", [])
         self.tissues = sorted(tissues_data, key=lambda t: t.get("order", 0))
+        
+        # Mesh section
+        self.meshes = data.get("mesh", [])
     
     def get_tissue(self, name):
         """Get tissue by name"""
@@ -33,20 +41,32 @@ class MaterialPreset:
                 return tissue
         return None
     
+    def get_mesh(self, name):
+        """Get mesh definition by name"""
+        for mesh in self.meshes:
+            if mesh["name"] == name:
+                return mesh
+        return None
+    
     def to_dict(self):
         """Convert to dictionary"""
         return {
-            "name": self.name,
-            "description": self.description,
-            "modality": self.modality,
-            "version": self.version,
-            "hu_range": {
-                "min": self.hu_min,
-                "max": self.hu_max
+            "header": {
+                "name": self.name,
+                "description": self.description,
+                "modality": self.modality,
+                "version": self.version
             },
-            "air_threshold": self.air_threshold,
-            "density_multiplier": self.density_multiplier,
-            "tissues": self.tissues
+            "volume": {
+                "hu_range": {
+                    "min": self.hu_min,
+                    "max": self.hu_max
+                },
+                "air_threshold": self.air_threshold,
+                "density_multiplier": self.density_multiplier,
+                "tissues": self.tissues
+            },
+            "mesh": self.meshes
         }
 
 

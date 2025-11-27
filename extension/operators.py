@@ -118,9 +118,6 @@ class IMPORT_OT_dicom_load_patient(Operator):
         scn.dicom_volume_unique_id = ""
         scn.dicom_volume_hu_min = -1024.0
         scn.dicom_volume_hu_max = 3000.0
-        scn.dicom_fat_volume_ml = 0.0
-        scn.dicom_fluid_volume_ml = 0.0
-        scn.dicom_soft_volume_ml = 0.0
         scn.dicom_preview_slice_index = 0
         scn.dicom_preview_slice_count = 0
         scn.dicom_preview_series_index = -1
@@ -450,11 +447,6 @@ class IMPORT_OT_dicom_import_series(Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     series_index: IntProperty()
-    debug_mode: bpy.props.BoolProperty(
-        name="Debug Mode",
-        description="Also create a test pyramid for comparison",
-        default=False
-    )
 
     def execute(self, context):
         series_list = eval(context.scene.dicom_series_data)
@@ -486,93 +478,11 @@ class IMPORT_OT_dicom_import_series(Operator):
         try:
             create_volume(slices)
             
-            # Create debug pyramid if requested
-            if self.debug_mode or context.scene.dicom_debug_pyramid:
-                self.create_debug_pyramid(context)
-            
             self.report({'INFO'}, f"Imported {len(slices)} slices as volume")
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"Failed to create volume: {e}")
             return {'CANCELLED'}
-    
-    def create_debug_pyramid(self, context):
-        """Create a simple pyramid volume for debugging"""
-        import openvdb as vdb
-        import tempfile
-        
-        log("Creating debug pyramid...")
-        
-        # Create a 100x100x100 grid with pyramid shape
-        size = 100
-        pyramid = np.zeros((size, size, size), dtype=np.float32)
-        
-        for z in range(size):
-            # Pyramid gets narrower as we go up
-            width = int(size * (1.0 - z/size))
-            if width > 0:
-                center = size // 2
-                start = center - width // 2
-                end = center + width // 2
-                pyramid[z, start:end, start:end] = float(z) / size * 1000.0  # Gradient from 0 to 1000
-        
-        log(f"Pyramid value range: {pyramid.min():.1f} to {pyramid.max():.1f}")
-        
-        # Transpose to (x, y, z)
-        pyramid_transposed = np.transpose(pyramid, (2, 1, 0))
-        
-        # Create VDB
-        temp_vdb = os.path.join(tempfile.gettempdir(), "debug_pyramid.vdb")
-        grid = vdb.FloatGrid()
-        grid.copyFromArray(pyramid_transposed)
-        grid.name = "density"
-        
-        # 1mm voxels
-        transform_matrix = [
-            [1.0, 0, 0, 0],
-            [0, 1.0, 0, 0],
-            [0, 0, 1.0, 0],
-            [0, 0, 0, 1]
-        ]
-        grid.transform = vdb.createLinearTransform(transform_matrix)
-        vdb.write(temp_vdb, grids=[grid])
-        
-        # Import
-        bpy.ops.object.volume_import(filepath=temp_vdb, files=[{"name": "debug_pyramid.vdb"}])
-        pyramid_obj = context.active_object
-        pyramid_obj.name = "DEBUG_Pyramid"
-        pyramid_obj.location = (0.15, 0, 0)  # Offset to the right
-        
-        # Simple material
-        mat = bpy.data.materials.new("DEBUG_Pyramid_Material")
-        mat.use_nodes = True
-        nodes = mat.node_tree.nodes
-        nodes.clear()
-        
-        out = nodes.new("ShaderNodeOutputMaterial")
-        prin = nodes.new("ShaderNodeVolumePrincipled")
-        vol_info = nodes.new("ShaderNodeVolumeInfo")
-        
-        # Simple ramp
-        ramp = nodes.new("ShaderNodeValToRGB")
-        ramp.color_ramp.elements[0].color = (0, 0, 0, 1)
-        ramp.color_ramp.elements[1].color = (1, 0, 0, 1)  # Red for visibility
-        
-        # Scale node
-        math = nodes.new("ShaderNodeMath")
-        math.operation = 'MULTIPLY'
-        math.inputs[1].default_value = 0.01
-        
-        mat.node_tree.links.new(vol_info.outputs["Density"], ramp.inputs["Fac"])
-        mat.node_tree.links.new(ramp.outputs["Color"], prin.inputs["Color"])
-        mat.node_tree.links.new(vol_info.outputs["Density"], math.inputs[0])
-        mat.node_tree.links.new(math.outputs["Value"], prin.inputs["Density"])
-        mat.node_tree.links.new(prin.outputs["Volume"], out.inputs["Volume"])
-        
-        pyramid_obj.data.materials.append(mat)
-        pyramid_obj.data.display.density = 0.01
-        
-        log("Debug pyramid created - should appear as red pyramid next to DICOM volume")
 
 class IMPORT_OT_dicom_visualize_series(Operator):
     """Visualize a series from the loaded patient"""
@@ -673,21 +583,23 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             pixel_spacing = (spacing[1], spacing[0])  # (row, col) = (Y, X)
             slice_thickness = spacing[2]  # Z
             
-            # Calculate all tissue volumes and store in series
-            series.fat_volume_ml = calculate_tissue_volume(
-                vol_array, scn.dicom_fat_min, scn.dicom_fat_max, 
-                pixel_spacing, slice_thickness
-            )
+            # Calculate all tissue volumes and store in series (dynamic from preset)
+            from .properties import get_tissue_thresholds_from_preset
+            thresholds = get_tissue_thresholds_from_preset(scn.dicom_active_material_preset)
             
-            series.fluid_volume_ml = calculate_tissue_volume(
-                vol_array, scn.dicom_fluid_min, scn.dicom_fluid_max, 
-                pixel_spacing, slice_thickness
-            )
+            # Clear previous measurements
+            series.tissue_volumes = {}
             
-            series.soft_volume_ml = calculate_tissue_volume(
-                vol_array, scn.dicom_soft_min, scn.dicom_soft_max, 
-                pixel_spacing, slice_thickness
-            )
+            # Calculate volume for each tissue defined in preset
+            for tissue_name, tissue_range in thresholds.items():
+                volume_ml = calculate_tissue_volume(
+                    vol_array,
+                    tissue_range.get('min', 0),
+                    tissue_range.get('max', 0),
+                    pixel_spacing, slice_thickness
+                )
+                if volume_ml > 0:
+                    series.tissue_volumes[tissue_name] = volume_ml
             
             log(f"Tissue volumes calculated for series {series.series_number}")
             
@@ -831,18 +743,23 @@ class IMPORT_OT_dicom_set_tool(Operator):
             pixel_spacing = (spacing[1], spacing[0])
             slice_thickness = spacing[2]
             
-            series.fat_volume_ml = calculate_tissue_volume(
-                vol_array, scn.dicom_fat_min, scn.dicom_fat_max, 
-                pixel_spacing, slice_thickness
-            )
-            series.fluid_volume_ml = calculate_tissue_volume(
-                vol_array, scn.dicom_fluid_min, scn.dicom_fluid_max, 
-                pixel_spacing, slice_thickness
-            )
-            series.soft_volume_ml = calculate_tissue_volume(
-                vol_array, scn.dicom_soft_min, scn.dicom_soft_max, 
-                pixel_spacing, slice_thickness
-            )
+            # Calculate all tissue volumes and store in series (dynamic from preset)
+            from .properties import get_tissue_thresholds_from_preset
+            thresholds = get_tissue_thresholds_from_preset(scn.dicom_active_material_preset)
+            
+            # Clear previous measurements
+            series.tissue_volumes = {}
+            
+            # Calculate volume for each tissue defined in preset
+            for tissue_name, tissue_range in thresholds.items():
+                volume_ml = calculate_tissue_volume(
+                    vol_array,
+                    tissue_range.get('min', 0),
+                    tissue_range.get('max', 0),
+                    pixel_spacing, slice_thickness
+                )
+                if volume_ml > 0:
+                    series.tissue_volumes[tissue_name] = volume_ml
         except Exception as e:
             log(f"Volume calculation error: {e}")
 
@@ -911,70 +828,6 @@ class IMPORT_OT_dicom_toggle_series_visibility(Operator):
             
             return {'FINISHED'}
         except:
-            return {'CANCELLED'}
-
-class IMPORT_OT_dicom_recompute_tissues(Operator):
-    """Update tissue threshold values in geometry nodes"""
-    bl_idname = "import.dicom_recompute_tissues"
-    bl_label = "Recompute Tissues"
-    bl_options = {'REGISTER', 'UNDO'}
-    
-    def execute(self, context):
-        scn = context.scene
-        
-        log(f"Updating tissue thresholds...")
-        log(f"Fat: {scn.dicom_fat_min} to {scn.dicom_fat_max} HU")
-        log(f"Fluid: {scn.dicom_fluid_min} to {scn.dicom_fluid_max} HU")
-        log(f"Soft: {scn.dicom_soft_min} to {scn.dicom_soft_max} HU")
-        log(f"Bone: {scn.dicom_bone_min}+ HU")
-        
-        try:
-            # Update threshold values in geometry nodes modifiers
-            tissue_configs = [
-                ("CT_Fat", scn.dicom_fat_min, scn.dicom_fat_max),
-                ("CT_Fluid", scn.dicom_fluid_min, scn.dicom_fluid_max),
-                ("CT_SoftTissue", scn.dicom_soft_min, scn.dicom_soft_max),
-                ("CT_Bone", scn.dicom_bone_min, 10000),
-            ]
-            
-            # Convert HU to normalized values
-            hu_min = scn.dicom_volume_hu_min
-            hu_max = scn.dicom_volume_hu_max
-            
-            updated_count = 0
-            for tissue_name, threshold_min, threshold_max in tissue_configs:
-                # Convert HU to normalized
-                threshold_normalized = (threshold_min - hu_min) / (hu_max - hu_min)
-                
-                tissue_obj = bpy.data.objects.get(tissue_name)
-                if tissue_obj:
-                    # Find geometry nodes modifier
-                    for mod in tissue_obj.modifiers:
-                        if mod.type == 'NODES' and mod.node_group:
-                            # Find Volume to Mesh node in the group
-                            for node in mod.node_group.nodes:
-                                if node.type == 'VOLUME_TO_MESH':
-                                    node.inputs['Threshold'].default_value = threshold_normalized
-                                    log(f"Updated {tissue_name}: {threshold_min} HU -> {threshold_normalized:.6f} normalized")
-                                    updated_count += 1
-                                    break
-            
-            if updated_count > 0:
-                self.report({'INFO'}, f"Updated {updated_count} tissue thresholds")
-                # Force viewport update
-                for area in context.screen.areas:
-                    if area.type == 'VIEW_3D':
-                        area.tag_redraw()
-                return {'FINISHED'}
-            else:
-                self.report({'WARNING'}, "No tissue objects found to update")
-                return {'CANCELLED'}
-            
-        except Exception as e:
-            self.report({'ERROR'}, f"Failed to update: {e}")
-            log(f"ERROR: {e}")
-            import traceback
-            traceback.print_exc()
             return {'CANCELLED'}
 
 class IMPORT_OT_dicom_toggle_display_mode(Operator):
@@ -1057,33 +910,33 @@ class IMPORT_OT_dicom_calculate_volume(Operator):
             pixel_spacing = (spacing[1], spacing[0])  # (row, col) = (Y, X)
             slice_thickness = spacing[2]  # Z
             
-            # Get HU thresholds based on tissue type
-            if self.tissue_type == 'fat':
-                hu_min = scn.dicom_fat_min
-                hu_max = scn.dicom_fat_max
-                result_prop = 'dicom_fat_volume_ml'
-                tissue_name = "Fat"
-            elif self.tissue_type == 'fluid':
-                hu_min = scn.dicom_fluid_min
-                hu_max = scn.dicom_fluid_max
-                result_prop = 'dicom_fluid_volume_ml'
-                tissue_name = "Fluid"
-            elif self.tissue_type == 'soft':
-                hu_min = scn.dicom_soft_min
-                hu_max = scn.dicom_soft_max
-                result_prop = 'dicom_soft_volume_ml'
-                tissue_name = "Soft Tissue"
-            else:
+            # Get HU thresholds based on tissue type (from preset)
+            from .properties import get_tissue_thresholds_from_preset
+            thresholds = get_tissue_thresholds_from_preset(scn.dicom_active_material_preset)
+            
+            # Map tissue_type to preset tissue name
+            tissue_map = {
+                'fat': 'fat',
+                'fluid': 'liquid',
+                'soft': 'soft_tissue'
+            }
+            
+            preset_tissue_name = tissue_map.get(self.tissue_type)
+            if not preset_tissue_name or preset_tissue_name not in thresholds:
                 self.report({'ERROR'}, f"Unknown tissue type: {self.tissue_type}")
                 return {'CANCELLED'}
+            
+            tissue_range = thresholds[preset_tissue_name]
+            hu_min = tissue_range.get('min', 0)
+            hu_max = tissue_range.get('max', 0)
             
             # Calculate volume
             volume_ml = calculate_tissue_volume(vol_array, hu_min, hu_max, pixel_spacing, slice_thickness)
             
-            # Store result
-            setattr(scn, result_prop, volume_ml)
+            # Note: Result is calculated but not stored anywhere now (legacy operator)
+            # Measurements are now stored per-series in patient data
             
-            self.report({'INFO'}, f"{tissue_name}: {volume_ml:.2f} mL")
+            self.report({'INFO'}, f"{self.tissue_type.title()}: {volume_ml:.2f} mL")
             return {'FINISHED'}
             
         except Exception as e:
@@ -1100,7 +953,6 @@ classes = (
     IMPORT_OT_dicom_set_tool,
     IMPORT_OT_dicom_toggle_series_selection,
     IMPORT_OT_dicom_toggle_series_visibility,
-    IMPORT_OT_dicom_recompute_tissues,
     IMPORT_OT_dicom_toggle_display_mode,
     IMPORT_OT_dicom_calculate_volume,
     IMPORT_OT_dicom_scan,
