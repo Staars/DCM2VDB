@@ -53,35 +53,52 @@ def update_tissue_alpha(self, context):
         return
     
     # Update alpha values for each tissue
-    # Each tissue has START (transparent) and END (slider value) stops
     # Stop 0: Air threshold - transparent
     # Stop 1: Fat START - transparent
-    # Stop 2: Fat END - controlled by fat slider
-    # Stop 3: Soft START - controlled by fat slider (transition from fat)
-    # Stop 4: Soft END - controlled by soft slider
-    # Stop 5: Bone START - controlled by soft slider (transition from soft)
-    # Stop 6: Bone END - controlled by bone slider
+    # Stop 2: Fat END - fat slider
+    # Stop 3: Liquid START - fat slider (transition)
+    # Stop 4: Liquid END - liquid slider
+    # Stop 5: Soft START - liquid slider (transition)
+    # Stop 6: Soft END - soft slider
+    # Stop 7: Connective START - soft slider (transition)
+    # Stop 8: Connective END - connective slider
+    # Stop 9: Bone START - connective slider (transition)
+    # Stop 10: Bone END - bone slider
     
     elements = color_ramp.color_ramp.elements
-    if len(elements) >= 7:
+    if len(elements) >= 11:
         fat_alpha = context.scene.dicom_tissue_alpha_fat
+        liquid_alpha = context.scene.dicom_tissue_alpha_liquid
         soft_alpha = context.scene.dicom_tissue_alpha_soft
+        connective_alpha = context.scene.dicom_tissue_alpha_connective
         bone_alpha = context.scene.dicom_tissue_alpha_bone
         
-        # Fat END (stop 2) - uses fat slider
+        # Fat END (stop 2)
         elements[2].color = (elements[2].color[0], elements[2].color[1], elements[2].color[2], fat_alpha)
         
-        # Soft START (stop 3) - uses fat slider (transition from fat color)
+        # Liquid START (stop 3) - transition from fat
         elements[3].color = (elements[3].color[0], elements[3].color[1], elements[3].color[2], fat_alpha)
         
-        # Soft END (stop 4) - uses soft slider
-        elements[4].color = (elements[4].color[0], elements[4].color[1], elements[4].color[2], soft_alpha)
+        # Liquid END (stop 4)
+        elements[4].color = (elements[4].color[0], elements[4].color[1], elements[4].color[2], liquid_alpha)
         
-        # Bone START (stop 5) - uses soft slider (transition from soft color)
-        elements[5].color = (elements[5].color[0], elements[5].color[1], elements[5].color[2], soft_alpha)
+        # Soft START (stop 5) - transition from liquid
+        elements[5].color = (elements[5].color[0], elements[5].color[1], elements[5].color[2], liquid_alpha)
         
-        # Bone END (stop 6) - uses bone slider
-        elements[6].color = (elements[6].color[0], elements[6].color[1], elements[6].color[2], bone_alpha)
+        # Soft END (stop 6)
+        elements[6].color = (elements[6].color[0], elements[6].color[1], elements[6].color[2], soft_alpha)
+        
+        # Connective START (stop 7) - transition from soft
+        elements[7].color = (elements[7].color[0], elements[7].color[1], elements[7].color[2], soft_alpha)
+        
+        # Connective END (stop 8)
+        elements[8].color = (elements[8].color[0], elements[8].color[1], elements[8].color[2], connective_alpha)
+        
+        # Bone START (stop 9) - transition from connective
+        elements[9].color = (elements[9].color[0], elements[9].color[1], elements[9].color[2], connective_alpha)
+        
+        # Bone END (stop 10)
+        elements[10].color = (elements[10].color[0], elements[10].color[1], elements[10].color[2], bone_alpha)
 
 def register_scene_props():
     """Register scene properties"""
@@ -251,23 +268,39 @@ def register_scene_props():
     # Tissue opacity controls (for volume material color ramp alpha)
     bpy.types.Scene.dicom_tissue_alpha_fat = FloatProperty(
         name="Fat",
-        default=ALPHA_FAT_DEFAULT,
+        default=0.059,
         min=0.0,
         max=1.0,
         description="Opacity of fat tissue in volume rendering",
         update=lambda self, context: update_tissue_alpha(self, context)
     )
+    bpy.types.Scene.dicom_tissue_alpha_liquid = FloatProperty(
+        name="Liquid",
+        default=0.05,
+        min=0.0,
+        max=1.0,
+        description="Opacity of liquid in volume rendering",
+        update=lambda self, context: update_tissue_alpha(self, context)
+    )
     bpy.types.Scene.dicom_tissue_alpha_soft = FloatProperty(
         name="Soft Tissue",
-        default=ALPHA_SOFT_DEFAULT,
+        default=1.0,
         min=0.0,
         max=1.0,
         description="Opacity of soft tissue in volume rendering",
         update=lambda self, context: update_tissue_alpha(self, context)
     )
+    bpy.types.Scene.dicom_tissue_alpha_connective = FloatProperty(
+        name="Connective Tissue",
+        default=1.0,
+        min=0.0,
+        max=1.0,
+        description="Opacity of connective tissue in volume rendering",
+        update=lambda self, context: update_tissue_alpha(self, context)
+    )
     bpy.types.Scene.dicom_tissue_alpha_bone = FloatProperty(
         name="Bone",
-        default=ALPHA_BONE_DEFAULT,
+        default=1.0,
         min=0.0,
         max=1.0,
         description="Opacity of bone in volume rendering",
@@ -343,7 +376,9 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_show_soft
     del bpy.types.Scene.dicom_show_bone
     del bpy.types.Scene.dicom_tissue_alpha_fat
+    del bpy.types.Scene.dicom_tissue_alpha_liquid
     del bpy.types.Scene.dicom_tissue_alpha_soft
+    del bpy.types.Scene.dicom_tissue_alpha_connective
     del bpy.types.Scene.dicom_tissue_alpha_bone
     del bpy.types.Scene.dicom_fat_volume_ml
     del bpy.types.Scene.dicom_fluid_volume_ml

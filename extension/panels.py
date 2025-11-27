@@ -193,7 +193,9 @@ class VIEW3D_PT_dicom_visualization(Panel):
             
             col = box.column(align=True)
             col.prop(scn, "dicom_tissue_alpha_fat", slider=True)
+            col.prop(scn, "dicom_tissue_alpha_liquid", slider=True)
             col.prop(scn, "dicom_tissue_alpha_soft", slider=True)
+            col.prop(scn, "dicom_tissue_alpha_connective", slider=True)
             col.prop(scn, "dicom_tissue_alpha_bone", slider=True)
             
             layout.separator()

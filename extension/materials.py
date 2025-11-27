@@ -5,9 +5,10 @@ from .dicom_io import log
 from .constants import *
 from .node_builders import *
 from .volume_utils import hu_to_normalized
+from .material_presets import load_preset
 
-def create_volume_material(vol_obj, vol_min, vol_max):
-    """Create or reuse shared CT volume material for normalized (0-1) VDB data"""
+def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard"):
+    """Create or reuse shared CT volume material from preset"""
     mat_name = "CT_Volume_Material"
     
     # Check if material already exists, reuse it
@@ -20,8 +21,17 @@ def create_volume_material(vol_obj, vol_min, vol_max):
             vol_obj.data.materials[0] = mat
         return
     
+    # Load preset
+    preset = load_preset(preset_name)
+    if not preset:
+        log(f"Failed to load preset '{preset_name}', using defaults")
+        preset = load_preset("ct_standard")  # Fallback
+        if not preset:
+            log("ERROR: No presets available!")
+            return
+    
     # Create new shared material
-    log(f"Creating new shared material: {mat_name}")
+    log(f"Creating new shared material: {mat_name} from preset '{preset.name}'")
     mat = bpy.data.materials.new(mat_name)
     mat.use_nodes = True
     nodes, links = mat.node_tree.nodes, mat.node_tree.links
@@ -42,12 +52,12 @@ def create_volume_material(vol_obj, vol_min, vol_max):
     vol_info = nodes.new("ShaderNodeVolumeInfo")
     vol_info.location = (-400, 0)
     
-    # Calculate normalized air threshold using FIXED range
-    # This ensures consistent threshold across all volumes
-    air_threshold_normalized = (HU_AIR_THRESHOLD - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
-    log(f"Using FIXED HU range: {HU_MIN_FIXED} to {HU_MAX_FIXED}")
+    # Calculate normalized air threshold from preset
+    air_threshold_normalized = hu_to_normalized(preset.air_threshold)
+    log(f"Using preset HU range: {preset.hu_min} to {preset.hu_max}")
     log(f"Actual volume HU range: {vol_min:.1f} to {vol_max:.1f}")
-    log(f"Air threshold: {HU_AIR_THRESHOLD} HU = {air_threshold_normalized:.6f} normalized (fixed range)")
+    log(f"Air threshold: {preset.air_threshold} HU = {air_threshold_normalized:.6f} normalized")
+    log(f"Density multiplier: {preset.density_multiplier}")
     
     # Math: Threshold mask (air removal)
     math_threshold = nodes.new("ShaderNodeMath")
@@ -61,51 +71,54 @@ def create_volume_material(vol_obj, vol_min, vol_max):
     ramp_color.location = (-95.5784, -31.2797)
     ramp_color.label = "Tissue_Colors"
     
-    # Calculate normalized positions from HU values
-    fat_start_pos = hu_to_normalized(HU_FAT_MIN)
-    fat_end_pos = hu_to_normalized(HU_FAT_MAX)
-    soft_start_pos = hu_to_normalized(HU_SOFT_MIN)
-    soft_end_pos = hu_to_normalized(HU_SOFT_MAX)
-    bone_start_pos = hu_to_normalized(HU_BONE_MIN)
-    bone_end_pos = hu_to_normalized(HU_BONE_MAX)
-    
+    # Calculate normalized positions from preset tissue data
     log(f"Tissue positions (normalized):")
-    log(f"  Fat: {fat_start_pos:.4f} - {fat_end_pos:.4f} (HU {HU_FAT_MIN} - {HU_FAT_MAX})")
-    log(f"  Soft: {soft_start_pos:.4f} - {soft_end_pos:.4f} (HU {HU_SOFT_MIN} - {HU_SOFT_MAX})")
-    log(f"  Bone: {bone_start_pos:.4f} - {bone_end_pos:.4f} (HU {HU_BONE_MIN} - {HU_BONE_MAX})")
+    tissue_positions = []
+    for tissue in preset.tissues:
+        start_pos = hu_to_normalized(tissue["hu_min"])
+        end_pos = hu_to_normalized(tissue["hu_max"])
+        tissue_positions.append({
+            "name": tissue["name"],
+            "label": tissue["label"],
+            "start_pos": start_pos,
+            "end_pos": end_pos,
+            "color_rgb": tuple(tissue["color_rgb"]),
+            "alpha": tissue["alpha_default"]
+        })
+        log(f"  {tissue['label']}: {start_pos:.4f} - {end_pos:.4f} (HU {tissue['hu_min']} - {tissue['hu_max']})")
     
-    # Configure color stops for sharp tissue boundaries
-    # Air/Background (before fat)
-    air_pos = hu_to_normalized(HU_AIR_THRESHOLD)
+    # Configure color stops dynamically from preset
+    # Air/Background
+    air_pos = air_threshold_normalized
     ramp_color.color_ramp.elements[0].position = air_pos
-    ramp_color.color_ramp.elements[0].color = (*COLOR_AIR_RGB, 0.0)  # Black transparent
+    ramp_color.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 0.0)  # Black transparent
     
-    # Fat tissue (sharp transition)
-    ramp_color.color_ramp.elements[1].position = fat_start_pos
-    ramp_color.color_ramp.elements[1].color = (*COLOR_AIR_RGB, 0.0)  # Fat START - transparent
+    # Create tissue stops dynamically
+    prev_color = (0.0, 0.0, 0.0)  # Start with black
     
-    elem_fat_end = ramp_color.color_ramp.elements.new(fat_end_pos)
-    elem_fat_end.color = (*COLOR_FAT_RGB, ALPHA_FAT_DEFAULT)  # Fat END - yellow opaque
+    for i, tissue in enumerate(tissue_positions):
+        if i == 0:
+            # First tissue: use existing element[1]
+            ramp_color.color_ramp.elements[1].position = tissue["start_pos"]
+            ramp_color.color_ramp.elements[1].color = (*prev_color, 0.0)  # START - transparent
+            
+            elem_end = ramp_color.color_ramp.elements.new(tissue["end_pos"])
+            elem_end.color = (*tissue["color_rgb"], tissue["alpha"])  # END - opaque
+        else:
+            # Subsequent tissues: create new elements
+            elem_start = ramp_color.color_ramp.elements.new(tissue["start_pos"])
+            elem_start.color = (*prev_color, 0.0)  # START - transparent (blend from previous)
+            
+            elem_end = ramp_color.color_ramp.elements.new(tissue["end_pos"])
+            elem_end.color = (*tissue["color_rgb"], tissue["alpha"])  # END - opaque
+        
+        prev_color = tissue["color_rgb"]  # Update for next tissue
     
-    # Soft tissue (sharp transition)
-    elem_soft_start = ramp_color.color_ramp.elements.new(soft_start_pos)
-    elem_soft_start.color = (*COLOR_FAT_RGB, 0.0)  # Soft START - transparent (blend from fat color)
-    
-    elem_soft_end = ramp_color.color_ramp.elements.new(soft_end_pos)
-    elem_soft_end.color = (*COLOR_SOFT_RGB, ALPHA_SOFT_DEFAULT)  # Soft END - red opaque
-    
-    # Bone (sharp transition)
-    elem_bone_start = ramp_color.color_ramp.elements.new(bone_start_pos)
-    elem_bone_start.color = (*COLOR_SOFT_RGB, 0.0)  # Bone START - transparent (blend from soft color)
-    
-    elem_bone_end = ramp_color.color_ramp.elements.new(bone_end_pos)
-    elem_bone_end.color = (*COLOR_BONE_RGB, ALPHA_BONE_DEFAULT)  # Bone END - white opaque
-    
-    # Math.002: Scale alpha by 600
+    # Math.002: Scale alpha by preset multiplier
     math_002 = nodes.new("ShaderNodeMath")
     math_002.location = (243.4801, 83.9188)
     math_002.operation = 'MULTIPLY'
-    math_002.inputs[1].default_value = 600.0
+    math_002.inputs[1].default_value = preset.density_multiplier
     math_002.label = "Alpha_Scale"
     
     # Math.003: Final multiply (threshold × alpha)
