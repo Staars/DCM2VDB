@@ -17,6 +17,25 @@ class DicomSeriesProperty(PropertyGroup):
     window_center: FloatProperty()
     window_width: FloatProperty()
 
+class DicomTissueAlphaProperty(PropertyGroup):
+    """Dynamic tissue alpha property"""
+    tissue_name: StringProperty(
+        name="Tissue Name",
+        description="Internal tissue identifier"
+    )
+    tissue_label: StringProperty(
+        name="Tissue Label",
+        description="Display label for tissue"
+    )
+    alpha: FloatProperty(
+        name="Alpha",
+        default=1.0,
+        min=0.0,
+        max=1.0,
+        description="Opacity of tissue in volume rendering",
+        update=lambda self, context: update_tissue_alpha_dynamic(self, context)
+    )
+
 def update_volume_visibility(self, context):
     """Update volume object visibility for all series"""
     # Find all CT_Volume_S* objects
@@ -36,8 +55,8 @@ def update_tissue_visibility(self, context, tissue_prefix, prop_name):
                     mod.show_viewport = show
                     break
 
-def update_tissue_alpha(self, context):
-    """Update alpha values in volume material color ramp (both START and END stops per tissue)"""
+def update_tissue_alpha_dynamic(self, context):
+    """Update alpha values in volume material color ramp dynamically based on preset"""
     mat = bpy.data.materials.get("CT_Volume_Material")
     if not mat or not mat.use_nodes:
         return
@@ -52,53 +71,66 @@ def update_tissue_alpha(self, context):
     if not color_ramp:
         return
     
-    # Update alpha values for each tissue
-    # Stop 0: Air threshold - transparent
-    # Stop 1: Fat START - transparent
-    # Stop 2: Fat END - fat slider
-    # Stop 3: Liquid START - fat slider (transition)
-    # Stop 4: Liquid END - liquid slider
-    # Stop 5: Soft START - liquid slider (transition)
-    # Stop 6: Soft END - soft slider
-    # Stop 7: Connective START - soft slider (transition)
-    # Stop 8: Connective END - connective slider
-    # Stop 9: Bone START - connective slider (transition)
-    # Stop 10: Bone END - bone slider
+    # Load the active preset to get tissue order
+    from .material_presets import load_preset
+    preset_name = context.scene.dicom_active_material_preset
+    if not preset_name:
+        return
+    
+    preset = load_preset(preset_name)
+    if not preset:
+        print(f"[Properties] Failed to load preset: {preset_name}")
+        return
+    
+    # Build a map of tissue_name -> alpha from the collection
+    alpha_map = {}
+    for tissue_alpha in context.scene.dicom_tissue_alphas:
+        alpha_map[tissue_alpha.tissue_name] = tissue_alpha.alpha
+    
+    # Update color ramp elements
+    # Stop 0: Air threshold (always transparent)
+    # For each tissue: 2 stops (START and END)
+    # START uses previous tissue's alpha (for transition)
+    # END uses current tissue's alpha
     
     elements = color_ramp.color_ramp.elements
-    if len(elements) >= 11:
-        fat_alpha = context.scene.dicom_tissue_alpha_fat
-        liquid_alpha = context.scene.dicom_tissue_alpha_liquid
-        soft_alpha = context.scene.dicom_tissue_alpha_soft
-        connective_alpha = context.scene.dicom_tissue_alpha_connective
-        bone_alpha = context.scene.dicom_tissue_alpha_bone
+    tissues = preset.tissues  # Already sorted by order
+    
+    # Calculate expected number of stops: 1 (air) + 1 (first tissue start) + 2 * num_tissues
+    expected_stops = 1 + 1 + (2 * len(tissues))
+    
+    if len(elements) < expected_stops:
+        print(f"[Properties] Color ramp has {len(elements)} stops, expected {expected_stops}")
+        return
+    
+    stop_idx = 1  # Start after air threshold (stop 0)
+    prev_alpha = 0.0  # Air is transparent
+    
+    for tissue in tissues:
+        tissue_name = tissue.get('name', '')
+        tissue_alpha = alpha_map.get(tissue_name, tissue.get('alpha_default', 1.0))
         
-        # Fat END (stop 2)
-        elements[2].color = (elements[2].color[0], elements[2].color[1], elements[2].color[2], fat_alpha)
+        # START stop - uses previous tissue's alpha for smooth transition
+        if stop_idx < len(elements):
+            elements[stop_idx].color = (
+                elements[stop_idx].color[0],
+                elements[stop_idx].color[1],
+                elements[stop_idx].color[2],
+                prev_alpha
+            )
+            stop_idx += 1
         
-        # Liquid START (stop 3) - transition from fat
-        elements[3].color = (elements[3].color[0], elements[3].color[1], elements[3].color[2], fat_alpha)
+        # END stop - uses current tissue's alpha
+        if stop_idx < len(elements):
+            elements[stop_idx].color = (
+                elements[stop_idx].color[0],
+                elements[stop_idx].color[1],
+                elements[stop_idx].color[2],
+                tissue_alpha
+            )
+            stop_idx += 1
         
-        # Liquid END (stop 4)
-        elements[4].color = (elements[4].color[0], elements[4].color[1], elements[4].color[2], liquid_alpha)
-        
-        # Soft START (stop 5) - transition from liquid
-        elements[5].color = (elements[5].color[0], elements[5].color[1], elements[5].color[2], liquid_alpha)
-        
-        # Soft END (stop 6)
-        elements[6].color = (elements[6].color[0], elements[6].color[1], elements[6].color[2], soft_alpha)
-        
-        # Connective START (stop 7) - transition from soft
-        elements[7].color = (elements[7].color[0], elements[7].color[1], elements[7].color[2], soft_alpha)
-        
-        # Connective END (stop 8)
-        elements[8].color = (elements[8].color[0], elements[8].color[1], elements[8].color[2], connective_alpha)
-        
-        # Bone START (stop 9) - transition from connective
-        elements[9].color = (elements[9].color[0], elements[9].color[1], elements[9].color[2], connective_alpha)
-        
-        # Bone END (stop 10)
-        elements[10].color = (elements[10].color[0], elements[10].color[1], elements[10].color[2], bone_alpha)
+        prev_alpha = tissue_alpha
 
 def register_scene_props():
     """Register scene properties"""
@@ -138,6 +170,20 @@ def register_scene_props():
         name="DICOM Patient Data",
         description="Serialized patient data (JSON)",
         default=""
+    )
+    
+    # Active material preset
+    bpy.types.Scene.dicom_active_material_preset = StringProperty(
+        name="Material Preset",
+        description="Active material preset name",
+        default="ct_standard"
+    )
+    
+    # Dynamic tissue alpha collection
+    bpy.types.Scene.dicom_tissue_alphas = CollectionProperty(
+        type=DicomTissueAlphaProperty,
+        name="Tissue Alphas",
+        description="Dynamic tissue opacity values"
     )
     
     # Active tool selection
@@ -265,47 +311,7 @@ def register_scene_props():
         update=lambda self, context: update_tissue_visibility(self, context, "CT_Bone_S", "dicom_show_bone")
     )
     
-    # Tissue opacity controls (for volume material color ramp alpha)
-    bpy.types.Scene.dicom_tissue_alpha_fat = FloatProperty(
-        name="Fat",
-        default=0.059,
-        min=0.0,
-        max=1.0,
-        description="Opacity of fat tissue in volume rendering",
-        update=lambda self, context: update_tissue_alpha(self, context)
-    )
-    bpy.types.Scene.dicom_tissue_alpha_liquid = FloatProperty(
-        name="Liquid",
-        default=0.05,
-        min=0.0,
-        max=1.0,
-        description="Opacity of liquid in volume rendering",
-        update=lambda self, context: update_tissue_alpha(self, context)
-    )
-    bpy.types.Scene.dicom_tissue_alpha_soft = FloatProperty(
-        name="Soft Tissue",
-        default=1.0,
-        min=0.0,
-        max=1.0,
-        description="Opacity of soft tissue in volume rendering",
-        update=lambda self, context: update_tissue_alpha(self, context)
-    )
-    bpy.types.Scene.dicom_tissue_alpha_connective = FloatProperty(
-        name="Connective Tissue",
-        default=1.0,
-        min=0.0,
-        max=1.0,
-        description="Opacity of connective tissue in volume rendering",
-        update=lambda self, context: update_tissue_alpha(self, context)
-    )
-    bpy.types.Scene.dicom_tissue_alpha_bone = FloatProperty(
-        name="Bone",
-        default=1.0,
-        min=0.0,
-        max=1.0,
-        description="Opacity of bone in volume rendering",
-        update=lambda self, context: update_tissue_alpha(self, context)
-    )
+
     
     # Measurement results
     bpy.types.Scene.dicom_fat_volume_ml = FloatProperty(
@@ -344,6 +350,30 @@ def register_scene_props():
         description="Show/hide soft tissue measurement mask"
     )
 
+def initialize_tissue_alphas(context, preset_name="ct_standard"):
+    """Initialize tissue alpha collection from preset"""
+    from .material_presets import load_preset
+    
+    preset = load_preset(preset_name)
+    if not preset:
+        print(f"[Properties] Failed to load preset {preset_name}")
+        return
+    
+    # Clear existing alphas
+    context.scene.dicom_tissue_alphas.clear()
+    
+    # Add tissue alphas from preset (tissues are already sorted by order)
+    for tissue in preset.tissues:
+        tissue_alpha = context.scene.dicom_tissue_alphas.add()
+        tissue_alpha.tissue_name = tissue.get('name', '')
+        tissue_alpha.tissue_label = tissue.get('label', tissue.get('name', '').title())
+        tissue_alpha.alpha = tissue.get('alpha_default', 1.0)
+    
+    # Store active preset name
+    context.scene.dicom_active_material_preset = preset_name
+    
+    print(f"[Properties] Initialized {len(preset.tissues)} tissue alphas from preset '{preset_name}'")
+
 def unregister_scene_props():
     """Unregister scene properties"""
     del bpy.types.Scene.dicom_import_folder
@@ -375,11 +405,8 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_show_fluid
     del bpy.types.Scene.dicom_show_soft
     del bpy.types.Scene.dicom_show_bone
-    del bpy.types.Scene.dicom_tissue_alpha_fat
-    del bpy.types.Scene.dicom_tissue_alpha_liquid
-    del bpy.types.Scene.dicom_tissue_alpha_soft
-    del bpy.types.Scene.dicom_tissue_alpha_connective
-    del bpy.types.Scene.dicom_tissue_alpha_bone
+    del bpy.types.Scene.dicom_active_material_preset
+    del bpy.types.Scene.dicom_tissue_alphas
     del bpy.types.Scene.dicom_fat_volume_ml
     del bpy.types.Scene.dicom_fluid_volume_ml
     del bpy.types.Scene.dicom_soft_volume_ml
@@ -389,6 +416,7 @@ def unregister_scene_props():
 
 classes = (
     DicomSeriesProperty,
+    DicomTissueAlphaProperty,
 )
 
 def register():

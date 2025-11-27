@@ -125,6 +125,8 @@ class IMPORT_OT_dicom_load_patient(Operator):
         scn.dicom_preview_slice_count = 0
         scn.dicom_preview_series_index = -1
         scn.dicom_series_data = ""
+        scn.dicom_active_material_preset = "ct_standard"
+        scn.dicom_tissue_alphas.clear()
         log("Reset all scene properties")
         
         # 5. Clean up temp files

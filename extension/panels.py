@@ -191,12 +191,15 @@ class VIEW3D_PT_dicom_visualization(Panel):
             box = layout.box()
             box.label(text="Tissue Opacity:", icon='SHADING_RENDERED')
             
-            col = box.column(align=True)
-            col.prop(scn, "dicom_tissue_alpha_fat", slider=True)
-            col.prop(scn, "dicom_tissue_alpha_liquid", slider=True)
-            col.prop(scn, "dicom_tissue_alpha_soft", slider=True)
-            col.prop(scn, "dicom_tissue_alpha_connective", slider=True)
-            col.prop(scn, "dicom_tissue_alpha_bone", slider=True)
+            # Dynamically draw sliders based on tissue alphas collection
+            if len(scn.dicom_tissue_alphas) > 0:
+                col = box.column(align=True)
+                for tissue_alpha in scn.dicom_tissue_alphas:
+                    row = col.row()
+                    row.label(text=tissue_alpha.tissue_label)
+                    row.prop(tissue_alpha, "alpha", text="", slider=True)
+            else:
+                box.label(text="No tissue data loaded", icon='INFO')
             
             layout.separator()
         

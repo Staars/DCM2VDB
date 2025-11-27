@@ -280,6 +280,11 @@ def create_volume(slices, series_number=1):
     # Create volume material
     create_volume_material(vol_obj, vol_min, vol_max)
     
+    # Initialize tissue alphas in scene properties if not already done
+    if len(bpy.context.scene.dicom_tissue_alphas) == 0:
+        from .properties import initialize_tissue_alphas
+        initialize_tissue_alphas(bpy.context, "ct_standard")
+    
     # Clean up old bone object if it exists for this series
     bone_name = f"CT_Bone_S{series_number}"
     
