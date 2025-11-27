@@ -87,31 +87,34 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard")
         log(f"  {tissue['label']}: {start_pos:.4f} - {end_pos:.4f} (HU {tissue['hu_min']} - {tissue['hu_max']})")
     
     # Configure color stops dynamically from preset
-    # Air/Background
-    air_pos = air_threshold_normalized
-    ramp_color.color_ramp.elements[0].position = air_pos
-    ramp_color.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 0.0)  # Black transparent
+    # Remove extra default elements (keep minimum 2 required by Blender)
+    while len(ramp_color.color_ramp.elements) > 2:
+        ramp_color.color_ramp.elements.remove(ramp_color.color_ramp.elements[0])
     
-    # Create tissue stops dynamically
+    # Create tissue stops dynamically (2 stops per tissue: START and END)
+    # Every tissue gets exactly 2 stops, no special cases
     prev_color = (0.0, 0.0, 0.0)  # Start with black
+    prev_alpha = 0.0  # Start transparent
     
     for i, tissue in enumerate(tissue_positions):
         if i == 0:
-            # First tissue: use existing element[1]
-            ramp_color.color_ramp.elements[1].position = tissue["start_pos"]
-            ramp_color.color_ramp.elements[1].color = (*prev_color, 0.0)  # START - transparent
+            # First tissue: use existing elements[0] and [1]
+            ramp_color.color_ramp.elements[0].position = tissue["start_pos"]
+            ramp_color.color_ramp.elements[0].color = (*prev_color, prev_alpha)
             
-            elem_end = ramp_color.color_ramp.elements.new(tissue["end_pos"])
-            elem_end.color = (*tissue["color_rgb"], tissue["alpha"])  # END - opaque
+            ramp_color.color_ramp.elements[1].position = tissue["end_pos"]
+            ramp_color.color_ramp.elements[1].color = (*tissue["color_rgb"], tissue["alpha"])
         else:
             # Subsequent tissues: create new elements
             elem_start = ramp_color.color_ramp.elements.new(tissue["start_pos"])
-            elem_start.color = (*prev_color, 0.0)  # START - transparent (blend from previous)
+            elem_start.color = (*prev_color, prev_alpha)
             
             elem_end = ramp_color.color_ramp.elements.new(tissue["end_pos"])
-            elem_end.color = (*tissue["color_rgb"], tissue["alpha"])  # END - opaque
+            elem_end.color = (*tissue["color_rgb"], tissue["alpha"])
         
-        prev_color = tissue["color_rgb"]  # Update for next tissue
+        # Update for next tissue
+        prev_color = tissue["color_rgb"]
+        prev_alpha = tissue["alpha"]
     
     # Math.002: Scale alpha by preset multiplier
     math_002 = nodes.new("ShaderNodeMath")

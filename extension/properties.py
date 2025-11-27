@@ -27,6 +27,8 @@ def update_tissue_alpha_dynamic(self, context):
         print("[Properties] No CT_Volume_Material found or nodes not enabled")
         return
     
+    print(f"[Properties] Found material: {mat.name}")
+    
     # Find the color ramp node
     color_ramp = None
     for node in mat.node_tree.nodes:
@@ -35,7 +37,10 @@ def update_tissue_alpha_dynamic(self, context):
             break
     
     if not color_ramp:
+        print("[Properties] Color ramp node 'Tissue_Colors' not found")
         return
+    
+    print(f"[Properties] Found color ramp with {len(color_ramp.color_ramp.elements)} stops")
     
     # Load the active preset to get tissue order
     from .material_presets import load_preset
@@ -62,15 +67,15 @@ def update_tissue_alpha_dynamic(self, context):
     elements = color_ramp.color_ramp.elements
     tissues = preset.tissues  # Already sorted by order
     
-    # Calculate expected number of stops: 1 (air) + 1 (first tissue start) + 2 * num_tissues
-    expected_stops = 1 + 1 + (2 * len(tissues))
+    # Calculate expected number of stops: 2 stops per tissue (no special cases)
+    expected_stops = 2 * len(tissues)
     
     if len(elements) < expected_stops:
         print(f"[Properties] Color ramp has {len(elements)} stops, expected {expected_stops}")
         return
     
-    stop_idx = 1  # Start after air threshold (stop 0)
-    prev_alpha = 0.0  # Air is transparent
+    stop_idx = 0  # Start from first stop
+    prev_alpha = 0.0  # Start transparent
     
     for tissue in tissues:
         tissue_name = tissue.get('name', '')
@@ -97,6 +102,8 @@ def update_tissue_alpha_dynamic(self, context):
             stop_idx += 1
         
         prev_alpha = tissue_alpha
+    
+    print(f"[Properties] Updated {stop_idx} color ramp stops")
 
 # PropertyGroup classes (defined after update callbacks)
 

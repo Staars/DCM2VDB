@@ -14,13 +14,31 @@
     "density_multiplier": 600,
     "tissues": [
       {
+        "name": "air",
+        "label": "Air",
+        "hu_min": -1024,
+        "hu_max": -950,
+        "color_rgb": [0.0, 0.0, 0.0],
+        "alpha_default": 0.0,
+        "order": 1
+      },
+      {
+        "name": "lung",
+        "label": "Lung",
+        "hu_min": -950,
+        "hu_max": -500,
+        "color_rgb": [0.4, 0.4, 0.5],
+        "alpha_default": 0.02,
+        "order": 2
+      },
+      {
         "name": "fat",
         "label": "Fat",
         "hu_min": -120,
         "hu_max": -90,
         "color_rgb": [0.776, 0.565, 0.018],
         "alpha_default": 0.059,
-        "order": 1
+        "order": 3
       },
       {
         "name": "liquid",
@@ -29,7 +47,7 @@
         "hu_max": 25,
         "color_rgb": [0.2, 0.5, 0.9],
         "alpha_default": 0.05,
-        "order": 2
+        "order": 4
       },
       {
         "name": "soft_tissue",
@@ -38,7 +56,7 @@
         "hu_max": 70,
         "color_rgb": [0.906, 0.071, 0.029],
         "alpha_default": 1.0,
-        "order": 3
+        "order": 5
       },
       {
         "name": "connective_tissue",
@@ -47,16 +65,25 @@
         "hu_max": 90,
         "color_rgb": [0.8, 0.6, 0.4],
         "alpha_default": 1.0,
-        "order": 4
+        "order": 6
       },
       {
         "name": "bone",
         "label": "Bone",
-        "hu_min": 400,
-        "hu_max": 1000,
+        "hu_min": 300,
+        "hu_max": 1500,
         "color_rgb": [1.0, 1.0, 1.0],
         "alpha_default": 1.0,
-        "order": 5
+        "order": 7
+      },
+      {
+        "name": "metal",
+        "label": "Metal",
+        "hu_min": 1500,
+        "hu_max": 3071,
+        "color_rgb": [0.9, 0.9, 1.0],
+        "alpha_default": 1.0,
+        "order": 8
       }
     ]
   },
