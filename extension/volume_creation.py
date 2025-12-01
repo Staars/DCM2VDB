@@ -74,7 +74,8 @@ def create_volume(slices, series_number=1):
         slices: List of DICOM slice data
         series_number: Series number for unique object naming
     """
-    clean_temp_dir()
+    # DON'T clean temp dir here - it would delete VDB files from other series!
+    # Cleanup only happens on explicit reload
 
     # Parse ImageOrientationPatient and ImagePositionPatient
     for slice_data in slices:
