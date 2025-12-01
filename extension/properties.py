@@ -22,13 +22,19 @@ def update_tissue_alpha_dynamic(self, context):
     
     print(f"[Properties] update_tissue_alpha_dynamic called for tissue: {self.tissue_name}, alpha: {self.alpha}")
     
-    mat = bpy.data.materials.get("CT_Volume_Material")
-    if not mat or not mat.use_nodes:
-        print("[Properties] No CT_Volume_Material found or nodes not enabled")
+    # Find the active volume material (could be CT_Volume_Material, MR_Volume_Material, etc.)
+    mat = None
+    for material in bpy.data.materials:
+        if material.name.endswith("_Volume_Material") and material.use_nodes:
+            mat = material
+            break
+    
+    if not mat:
+        print("[Properties] No volume material found")
         return
     
-    print(f"[Properties] Found material: {mat.name}")
-    
+    print(f"[Properties] Found volume material: {mat.name}")
+
     # Find the color ramp node
     color_ramp = None
     for node in mat.node_tree.nodes:
@@ -40,8 +46,7 @@ def update_tissue_alpha_dynamic(self, context):
         print("[Properties] Color ramp node 'Tissue_Colors' not found")
         return
     
-    print(f"[Properties] Found color ramp with {len(color_ramp.color_ramp.elements)} stops")
-    
+
     # Load the active preset to get tissue order
     from .material_presets import load_preset
     preset_name = context.scene.dicom_active_material_preset

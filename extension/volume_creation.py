@@ -76,6 +76,10 @@ def create_volume(slices, series_number=1):
     """
     # DON'T clean temp dir here - it would delete VDB files from other series!
     # Cleanup only happens on explicit reload
+    
+    # Get modality for naming
+    modality = slices[0]["ds"].Modality if hasattr(slices[0]["ds"], "Modality") else "CT"
+    modality_prefix = modality.upper()  # CT, MR, etc.
 
     # Parse ImageOrientationPatient and ImagePositionPatient
     for slice_data in slices:
@@ -166,7 +170,7 @@ def create_volume(slices, series_number=1):
     save_debug_slice(vol)
     
     # Clean up old volumes for this series
-    volume_name = f"CT_Volume_S{series_number}"
+    volume_name = f"{modality_prefix}_Volume_S{series_number}"
     clean_old_volumes(volume_name)
 
     # Generate unique ID for this volume session
@@ -278,113 +282,121 @@ def create_volume(slices, series_number=1):
     expected_dims = (width * spacing_meters[0], height * spacing_meters[1], depth * spacing_meters[2])
     log(f"Expected dimensions (meters): {expected_dims}")
     
-    # Create volume material
-    create_volume_material(vol_obj, vol_min, vol_max)
+    # Create volume material with modality detection
+    series_desc = slices[0]["ds"].SeriesDescription if hasattr(slices[0]["ds"], "SeriesDescription") else ""
+    create_volume_material(vol_obj, vol_min, vol_max, modality=modality, series_description=series_desc)
     
-    # Tissue alphas should already be initialized at addon startup
-    # But reinitialize if collection is empty (shouldn't happen)
-    if len(bpy.context.scene.dicom_tissue_alphas) == 0:
-        from .properties import initialize_tissue_alphas
-        initialize_tissue_alphas(bpy.context, "ct_standard")
-        print("[Volume Creation] WARNING: Had to reinitialize tissue alphas")
+    # Update tissue alphas to match the detected preset
+    from .material_presets import get_preset_for_modality
+    from .properties import initialize_tissue_alphas
     
-    # Clean up old bone object if it exists for this series
-    bone_name = f"CT_Bone_S{series_number}"
+    detected_preset = get_preset_for_modality(modality, series_desc)
+    current_preset = bpy.context.scene.dicom_active_material_preset
     
-    log(f"Cleaning up old bone objects for series {series_number}...")
-    old_bone = bpy.data.objects.get(bone_name)
-    if old_bone:
-        bpy.data.objects.remove(old_bone, do_unlink=True)
-        log(f"Removed old {bone_name} object")
-    
-    # Get bone threshold from material preset
-    from .material_presets import load_preset
-    preset = load_preset("ct_standard")
-    
-    bone_mesh = preset.get_mesh("bone") if preset else None
-    bone_min = bone_mesh.get("threshold", 400) if bone_mesh else 400
-    
-    log("=" * 60)
-    log(f"Creating bone mesh (threshold: {bone_min}+ HU from preset)...")
-    log("=" * 60)
-    
-    # Get or create shared bone material
-    bone_mat_name = "CT_Bone_Material"
-    mat_bone = bpy.data.materials.get(bone_mat_name)
-    
-    if mat_bone:
-        log(f"Reusing existing bone material: {bone_mat_name}")
+    if detected_preset != current_preset or len(bpy.context.scene.dicom_tissue_alphas) == 0:
+        log(f"Updating tissue alphas from '{current_preset}' to '{detected_preset}'")
+        initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
     else:
-        log(f"Creating new shared bone material: {bone_mat_name}")
-        mat_bone = bpy.data.materials.new(bone_mat_name)
-        # Only create nodes if material is new
-        mat_bone.use_nodes = True
-        nodes = mat_bone.node_tree.nodes
-        links = mat_bone.node_tree.links
-        nodes.clear()
-        
-        # Geometry node for pointiness
-        geom = nodes.new('ShaderNodeNewGeometry')
-        geom.location = (-565.1387, 330.9430)
-        
-        # ColorRamp for pointiness → color
-        color_ramp = nodes.new('ShaderNodeValToRGB')
-        color_ramp.location = (-238.6115, 418.1208)
-        
-        # Configure color ramp stops
-        color_ramp.color_ramp.elements[0].position = 0.414
-        color_ramp.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)  # Black
-        color_ramp.color_ramp.elements[1].position = 0.527
-        color_ramp.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)  # White
-        
-        # Math node for specular/sheen control
-        math_node = nodes.new('ShaderNodeMath')
-        math_node.location = (144.1627, 301.8408)
-        math_node.operation = 'MULTIPLY'
-        math_node.inputs[1].default_value = 0.5  # Scale factor
-        
-        # Mix node for color blending
-        mix = nodes.new('ShaderNodeMix')
-        mix.location = (74.3885, 570.1207)
-        mix.data_type = 'RGBA'
-        mix.inputs['A'].default_value = (0.7, 0.301, 0.117, 1.0)  # Dark bone (more orange/brown)
-        mix.inputs['B'].default_value = (0.95, 0.92, 0.85, 1.0)  # Light bone
-        
-        # Principled BSDF
-        bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.location = (555.0801, 449.8262)
-        bsdf.inputs['Roughness'].default_value = 0.4
-        
-        # Material Output
-        out = nodes.new('ShaderNodeOutputMaterial')
-        out.location = (976.8613, 418.9430)
-        
-        # Connect nodes
-        links.new(geom.outputs['Pointiness'], color_ramp.inputs['Fac'])
-        links.new(color_ramp.outputs['Color'], mix.inputs['Factor'])
-        links.new(color_ramp.outputs['Color'], math_node.inputs[0])
-        links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
-        links.new(math_node.outputs['Value'], bsdf.inputs['Specular IOR Level'])
-        links.new(math_node.outputs['Value'], bsdf.inputs['Sheen Weight'])
-        links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+        log(f"Tissue alphas already match preset '{detected_preset}'")
     
-    # Create bone mesh object
-    log("Creating bone mesh object...")
-    bone_obj = vol_obj.copy()
-    bone_obj.name = bone_name
-    bone_obj.data = vol_obj.data  # Share VDB data
-    bpy.context.collection.objects.link(bone_obj)
-    bone_obj.location = vol_obj.location.copy()
-    bone_obj.rotation_euler = vol_obj.rotation_euler.copy()
+    # Create meshes based on preset definitions
+    from .material_presets import load_preset, get_preset_for_modality
+    preset_name = get_preset_for_modality(modality, series_desc)
+    preset = load_preset(preset_name)
     
-    # Create geometry nodes for bone mesh
-    bone_mod = create_tissue_mesh_geonodes(bone_obj, "Bone", bone_min, 10000, mat_bone)
-    if bone_mod:
-        bone_mod.show_viewport = False  # Hidden by default
-        bone_mod.show_render = False
-        log("Bone mesh created (hidden by default)")
+    if preset and preset.meshes:
+        log("=" * 60)
+        log(f"Creating {len(preset.meshes)} mesh(es) from preset...")
+        log("=" * 60)
+        
+        for mesh_def in preset.meshes:
+            mesh_name = mesh_def.get("name", "mesh")
+            mesh_label = mesh_def.get("label", mesh_name.title())
+            mesh_threshold = mesh_def.get("threshold", 400)
+            separate_islands = mesh_def.get("separate_islands", False)
+            min_island_verts = mesh_def.get("min_island_verts", 100)
+            
+            # Object and material names
+            mesh_obj_name = f"{modality_prefix}_{mesh_label.replace(' ', '_')}_S{series_number}"
+            mesh_mat_name = f"{modality_prefix}_{mesh_label.replace(' ', '_')}_Material"
+            
+            # Clean up old mesh object if exists
+            old_mesh = bpy.data.objects.get(mesh_obj_name)
+            if old_mesh:
+                bpy.data.objects.remove(old_mesh, do_unlink=True)
+                log(f"Removed old {mesh_obj_name} object")
+            
+            # Get or create shared mesh material
+            mat_mesh = bpy.data.materials.get(mesh_mat_name)
+            
+            if mat_mesh:
+                log(f"Reusing existing material: {mesh_mat_name}")
+            else:
+                log(f"Creating new shared material: {mesh_mat_name}")
+                mat_mesh = bpy.data.materials.new(mesh_mat_name)
+                mat_mesh.use_nodes = True
+                nodes = mat_mesh.node_tree.nodes
+                links = mat_mesh.node_tree.links
+                nodes.clear()
+                
+                # Simple material with pointiness-based coloring
+                geom = nodes.new('ShaderNodeNewGeometry')
+                geom.location = (-565, 330)
+                
+                color_ramp = nodes.new('ShaderNodeValToRGB')
+                color_ramp.location = (-238, 418)
+                color_ramp.color_ramp.elements[0].position = 0.414
+                color_ramp.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
+                color_ramp.color_ramp.elements[1].position = 0.527
+                color_ramp.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
+                
+                math_node = nodes.new('ShaderNodeMath')
+                math_node.location = (144, 301)
+                math_node.operation = 'MULTIPLY'
+                math_node.inputs[1].default_value = 0.5
+                
+                mix = nodes.new('ShaderNodeMix')
+                mix.location = (74, 570)
+                mix.data_type = 'RGBA'
+                mix.inputs['A'].default_value = (0.7, 0.301, 0.117, 1.0)
+                mix.inputs['B'].default_value = (0.95, 0.92, 0.85, 1.0)
+                
+                bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+                bsdf.location = (555, 449)
+                bsdf.inputs['Roughness'].default_value = 0.4
+                
+                out = nodes.new('ShaderNodeOutputMaterial')
+                out.location = (976, 418)
+                
+                links.new(geom.outputs['Pointiness'], color_ramp.inputs['Fac'])
+                links.new(color_ramp.outputs['Color'], mix.inputs['Factor'])
+                links.new(color_ramp.outputs['Color'], math_node.inputs[0])
+                links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
+                links.new(math_node.outputs['Value'], bsdf.inputs['Specular IOR Level'])
+                links.new(math_node.outputs['Value'], bsdf.inputs['Sheen Weight'])
+                links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+            
+            # Create mesh object
+            log(f"Creating {mesh_label} mesh object...")
+            mesh_obj = vol_obj.copy()
+            mesh_obj.name = mesh_obj_name
+            mesh_obj.data = vol_obj.data  # Share VDB data
+            bpy.context.collection.objects.link(mesh_obj)
+            mesh_obj.location = vol_obj.location.copy()
+            mesh_obj.rotation_euler = vol_obj.rotation_euler.copy()
+            
+            # Create geometry nodes for mesh
+            mesh_mod = create_tissue_mesh_geonodes(
+                mesh_obj, mesh_label, mesh_threshold, 10000, mat_mesh
+            )
+            if mesh_mod:
+                mesh_mod.show_viewport = False  # Hidden by default
+                mesh_mod.show_render = False
+                log(f"{mesh_label} mesh created (hidden by default)")
+            else:
+                log(f"ERROR: {mesh_label} modifier creation failed!")
     else:
-        log("ERROR: Bone modifier creation failed!")
+        log("No mesh definitions in preset - skipping mesh creation")
     
     log(f"Volume created with Hounsfield units preserved ({vol_min:.1f} to {vol_max:.1f})")
     log("=" * 60)

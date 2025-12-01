@@ -1,0 +1,73 @@
+{
+  "header": {
+    "name": "MRI_T1_Brain",
+    "description": "T1-weighted MRI brain imaging with tissue differentiation",
+    "modality": "MR",
+    "version": "1.0"
+  },
+  "volume": {
+    "hu_range": {
+      "min": 0,
+      "max": 4095
+    },
+    "air_threshold": 50,
+    "density_multiplier": 400,
+    "tissues": [
+      {
+        "name": "air",
+        "label": "Air/Background",
+        "hu_min": 0,
+        "hu_max": 50,
+        "color_rgb": [0.0, 0.0, 0.0],
+        "alpha_default": 0.0,
+        "order": 1
+      },
+      {
+        "name": "csf",
+        "label": "CSF",
+        "hu_min": 50,
+        "hu_max": 400,
+        "color_rgb": [0.1, 0.2, 0.4],
+        "alpha_default": 0.05,
+        "order": 2
+      },
+      {
+        "name": "gray_matter",
+        "label": "Gray Matter",
+        "hu_min": 600,
+        "hu_max": 1200,
+        "color_rgb": [0.5, 0.5, 0.5],
+        "alpha_default": 0.8,
+        "order": 3
+      },
+      {
+        "name": "white_matter",
+        "label": "White Matter",
+        "hu_min": 1200,
+        "hu_max": 2000,
+        "color_rgb": [0.9, 0.9, 0.85],
+        "alpha_default": 1.0,
+        "order": 4
+      },
+      {
+        "name": "fat",
+        "label": "Fat",
+        "hu_min": 2000,
+        "hu_max": 3000,
+        "color_rgb": [0.95, 0.85, 0.3],
+        "alpha_default": 0.9,
+        "order": 5
+      },
+      {
+        "name": "bright",
+        "label": "Bright Signal",
+        "hu_min": 3000,
+        "hu_max": 4095,
+        "color_rgb": [1.0, 1.0, 1.0],
+        "alpha_default": 1.0,
+        "order": 6
+      }
+    ]
+  },
+  "mesh": []
+}

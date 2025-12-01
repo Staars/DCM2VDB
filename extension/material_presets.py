@@ -70,6 +70,36 @@ class MaterialPreset:
         }
 
 
+def get_preset_for_modality(modality, series_description=""):
+    """Get appropriate preset name based on DICOM modality and series description
+    
+    Args:
+        modality: DICOM modality (CT, MR, etc.)
+        series_description: Series description for additional context
+    
+    Returns:
+        Preset name string
+    """
+    modality = modality.upper() if modality else "CT"
+    series_desc = series_description.upper() if series_description else ""
+    
+    if modality == "CT":
+        return "ct_standard"
+    elif modality == "MR":
+        # Check series description for T1/T2/etc.
+        if "T1" in series_desc:
+            return "mri_t1_brain"
+        # Add more MRI presets here as they're created
+        # elif "T2" in series_desc:
+        #     return "mri_t2_brain"
+        else:
+            # Default to T1 for MR
+            return "mri_t1_brain"
+    else:
+        # Unknown modality, default to CT
+        log(f"Unknown modality '{modality}', defaulting to CT preset")
+        return "ct_standard"
+
 def load_preset(preset_name):
     """Load a material preset from JSON file"""
     addon_dir = os.path.dirname(os.path.abspath(__file__))

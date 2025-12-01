@@ -80,30 +80,26 @@ class IMPORT_OT_dicom_load_patient(Operator):
         log("COMPLETE CLEANUP - Removing all DICOM data")
         log("=" * 60)
         
-        # 1. Remove all DICOM objects (old style + multi-series)
+        # 1. Remove all DICOM objects (modality-aware naming)
         removed_count = 0
         for obj in list(bpy.data.objects):
-            # Check if it's a DICOM object
-            if (obj.name == "CT_Volume" or obj.name.startswith("CT_Volume_S") or
-                obj.name == "CT_Bone" or obj.name.startswith("CT_Bone_S") or
-                obj.name.startswith("CT_Fat") or obj.name.startswith("CT_Fluid") or
-                obj.name.startswith("CT_SoftTissue") or obj.name.startswith("DEBUG_Pyramid")):
-                obj_name = obj.name  # Save name before removing
+            # Check if it's a DICOM object (CT_, MR_, or other modality prefixes)
+            if any(pattern in obj.name for pattern in ['_Volume_S', '_Volume', '_Bone_S', '_Bone', '_Mesh_S', '_Mesh', 'DEBUG_Pyramid']):
+                obj_name = obj.name
                 bpy.data.objects.remove(obj, do_unlink=True)
                 log(f"Removed object: {obj_name}")
                 removed_count += 1
         log(f"Removed {removed_count} DICOM objects")
         
-        # 2. Remove shared DICOM materials
+        # 2. Remove all DICOM materials (modality-aware)
         removed_mat_count = 0
-        shared_materials = ["CT_Volume_Material", "CT_Bone_Material"]
-        for mat_name in shared_materials:
-            mat = bpy.data.materials.get(mat_name)
-            if mat:
+        for mat in list(bpy.data.materials):
+            if mat.name.endswith("_Volume_Material") or mat.name.endswith("_Bone_Material") or mat.name.endswith("_Mesh_Material"):
+                mat_name = mat.name  # Save name before removing
                 bpy.data.materials.remove(mat)
-                log(f"Removed shared material: {mat_name}")
+                log(f"Removed material: {mat_name}")
                 removed_mat_count += 1
-        log(f"Removed {removed_mat_count} shared DICOM materials")
+        log(f"Removed {removed_mat_count} DICOM materials")
         
         # 3. Remove preview images
         preview_img = bpy.data.images.get("DICOM_Preview")
@@ -681,7 +677,20 @@ class IMPORT_OT_dicom_set_tool(Operator):
         if self.tool == 'VISUALIZATION' and context.scene.dicom_patient_data:
             try:
                 patient = Patient.from_json(context.scene.dicom_patient_data)
-                selected_series = [s for s in patient.series if s.is_selected and not s.is_loaded]
+                
+                # Clear all previously loaded volumes and meshes
+                self._clear_all_volumes(context)
+                
+                # Reset all series loaded states
+                for s in patient.series:
+                    s.is_loaded = False
+                    s.is_visible = False
+                
+                selected_series = [s for s in patient.series if s.is_selected]
+                
+                log(f"Total series: {len(patient.series)}, Selected: {len(selected_series)}")
+                for s in patient.series:
+                    log(f"  Series {s.series_number}: selected={s.is_selected}, loaded={s.is_loaded}")
                 
                 if selected_series:
                     self.report({'INFO'}, f"Auto-visualizing {len(selected_series)} selected series...")
@@ -728,6 +737,24 @@ class IMPORT_OT_dicom_set_tool(Operator):
         
         self.report({'INFO'}, f"Switched to {self.tool} tool")
         return {'FINISHED'}
+    
+    def _clear_all_volumes(self, context):
+        """Clear all DICOM volumes and meshes from the scene"""
+        import bpy
+        
+        # Remove all objects with DICOM naming patterns
+        for obj in list(bpy.data.objects):
+            if any(pattern in obj.name for pattern in ['_Volume_', '_Mesh_', 'DICOM_']):
+                bpy.data.objects.remove(obj, do_unlink=True)
+                log(f"Removed object: {obj.name}")
+        
+        # Remove volume materials
+        for mat in list(bpy.data.materials):
+            if mat.name.endswith('_Volume_Material'):
+                bpy.data.materials.remove(mat)
+                log(f"Removed material: {mat.name}")
+        
+        log("Cleared all DICOM volumes and meshes")
     
     def _calculate_volumes_for_series(self, context, series):
         """Calculate tissue volumes for a series"""

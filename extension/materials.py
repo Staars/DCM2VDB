@@ -6,9 +6,25 @@ from .constants import *
 from .volume_utils import hu_to_normalized
 from .material_presets import load_preset
 
-def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard"):
-    """Create or reuse shared CT volume material from preset"""
-    mat_name = "CT_Volume_Material"
+def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard", modality="CT", series_description=""):
+    """Create or reuse shared volume material from preset
+    
+    Args:
+        vol_obj: Volume object to apply material to
+        vol_min: Minimum value in volume
+        vol_max: Maximum value in volume
+        preset_name: Preset name (optional, will auto-detect if not provided)
+        modality: DICOM modality for auto-detection
+        series_description: Series description for auto-detection
+    """
+    # Auto-detect preset if using default
+    if preset_name == "ct_standard" and modality:
+        from .material_presets import get_preset_for_modality
+        preset_name = get_preset_for_modality(modality, series_description)
+        log(f"Auto-detected preset: {preset_name} for modality {modality}")
+    
+    # Use modality-specific material name
+    mat_name = f"{modality}_Volume_Material"
     
     # Check if material already exists, reuse it
     mat = bpy.data.materials.get(mat_name)

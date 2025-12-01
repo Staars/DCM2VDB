@@ -185,8 +185,14 @@ class VIEW3D_PT_dicom_visualization(Panel):
             layout.label(text=f"Error: {e}", icon='ERROR')
             return
         
-        # Tissue opacity controls (if volume material exists)
-        if bpy.data.materials.get("CT_Volume_Material"):
+        # Tissue opacity controls (if any volume material exists)
+        volume_material = None
+        for mat in bpy.data.materials:
+            if mat.name.endswith("_Volume_Material"):
+                volume_material = mat
+                break
+        
+        if volume_material:
             layout.separator()
             box = layout.box()
             box.label(text="Tissue Opacity:", icon='SHADING_RENDERED')
