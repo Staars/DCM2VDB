@@ -223,33 +223,9 @@ class VIEW3D_PT_dicom_visualization(Panel):
             
             # Series actions (no frame header)
             for series in selected_series:
-                # Series header with visibility toggles
+                # Series header
                 row = box.row(align=True)
-                row.label(text=f"Series {series.series_number}")
-                
-                # Show visibility toggles if loaded
-                if series.is_loaded:
-                    # Volume toggle
-                    op = row.operator(
-                        "import.dicom_toggle_series_visibility",
-                        text="",
-                        icon='HIDE_OFF' if series.show_volume else 'HIDE_ON',
-                        emboss=False,
-                        depress=series.show_volume
-                    )
-                    op.series_uid = series.series_instance_uid
-                    op.visibility_type = 'volume'
-                    
-                    # Bone toggle
-                    op = row.operator(
-                        "import.dicom_toggle_series_visibility",
-                        text="",
-                        icon='MESH_DATA' if series.show_bone else 'MESH_PLANE',
-                        emboss=False,
-                        depress=series.show_bone
-                    )
-                    op.series_uid = series.series_instance_uid
-                    op.visibility_type = 'bone'
+                row.label(text=f"Series {series.series_number}", icon='RENDERLAYERS')
                 
                 # Show measurements if loaded (dynamic from preset)
                 if series.is_loaded and series.tissue_volumes:

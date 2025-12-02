@@ -390,9 +390,9 @@ def create_volume(slices, series_number=1):
                 mesh_obj, mesh_label, mesh_threshold, 10000, mat_mesh
             )
             if mesh_mod:
-                mesh_mod.show_viewport = False  # Hidden by default
-                mesh_mod.show_render = False
-                log(f"{mesh_label} mesh created (hidden by default)")
+                mesh_mod.show_viewport = True  # Visible by default
+                mesh_mod.show_render = True
+                log(f"{mesh_label} mesh created (visible)")
             else:
                 log(f"ERROR: {mesh_label} modifier creation failed!")
     else:

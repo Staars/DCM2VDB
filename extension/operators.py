@@ -979,7 +979,6 @@ classes = (
     IMPORT_OT_dicom_preview_series,
     IMPORT_OT_dicom_set_tool,
     IMPORT_OT_dicom_toggle_series_selection,
-    IMPORT_OT_dicom_toggle_series_visibility,
     IMPORT_OT_dicom_toggle_display_mode,
     IMPORT_OT_dicom_calculate_volume,
     IMPORT_OT_dicom_scan,

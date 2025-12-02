@@ -6,13 +6,6 @@ from bpy.types import PropertyGroup
 
 # Update callbacks must be defined BEFORE the PropertyGroup classes that use them
 
-def update_volume_visibility(self, context):
-    """Update volume object visibility for all series"""
-    # Find all CT_Volume_S* objects
-    for obj in bpy.data.objects:
-        if obj.name.startswith("CT_Volume_S"):
-            obj.hide_viewport = not context.scene.dicom_show_volume
-
 def update_tissue_alpha_dynamic(self, context):
     """Update alpha values in volume material color ramp dynamically based on preset"""
     
@@ -234,14 +227,6 @@ def register_scene_props():
         default=3000.0
     )
     
-    # Visibility toggles
-    bpy.types.Scene.dicom_show_volume = BoolProperty(
-        name="Show Volume",
-        default=True,
-        description="Show/hide the main volume",
-        update=update_volume_visibility
-    )
-    
 
     
 
@@ -326,7 +311,6 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_volume_unique_id
     del bpy.types.Scene.dicom_volume_hu_min
     del bpy.types.Scene.dicom_volume_hu_max
-    del bpy.types.Scene.dicom_show_volume
     del bpy.types.Scene.dicom_active_material_preset
     del bpy.types.Scene.dicom_tissue_alphas
 
