@@ -307,6 +307,7 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
         
         layout.separator()
         layout.label(text="Use mouse wheel to scroll", icon='MOUSE_MOVE')
+        layout.label(text="Double-click to set 3D cursor", icon='CURSOR')
         
         # Spatial Information (collapsible)
         if series:

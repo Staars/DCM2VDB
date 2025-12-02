@@ -178,12 +178,18 @@ def load_slice(path):
     
     spacing = [float(x) for x in (getattr(ds, 'PixelSpacing', [1.0, 1.0]))][:2]
     
+    # Get spatial information for 3D positioning
+    position = [float(x) for x in getattr(ds, 'ImagePositionPatient', [0.0, 0.0, 0.0])]
+    orientation = [float(x) for x in getattr(ds, 'ImageOrientationPatient', [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])]
+    
     return {
         "pixels": pixels,
         "pixel_spacing": spacing,
         "slice_thickness": float(getattr(ds, 'SliceThickness', 1.0)),
         "slice_location": float(getattr(ds, 'SliceLocation', 0.0)),
         "instance_number": int(getattr(ds, 'InstanceNumber', 0)),
+        "position": position,  # ImagePositionPatient
+        "orientation": orientation,  # ImageOrientationPatient
         "window_center": float(getattr(ds, 'WindowCenter', 0.0)) if hasattr(ds, 'WindowCenter') else None,
         "window_width": float(getattr(ds, 'WindowWidth', 0.0)) if hasattr(ds, 'WindowWidth') else None,
         "rescale_slope": rescale_slope,

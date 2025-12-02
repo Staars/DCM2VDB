@@ -409,6 +409,207 @@ class IMPORT_OT_dicom_preview_slice(Operator):
         
         return {'FINISHED'}
 
+class IMAGE_OT_dicom_set_cursor_3d(Operator):
+    """Set 3D cursor from 2D image double-click"""
+    bl_idname = "image.dicom_set_cursor_3d"
+    bl_label = "Set 3D Cursor from DICOM Image"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    @classmethod
+    def poll(cls, context):
+        return (context.area and context.area.type == 'IMAGE_EDITOR' and
+                context.scene.dicom_preview_slice_count > 0 and
+                "DICOM_Preview" in bpy.data.images)
+    
+    def invoke(self, context, event):
+        self.set_cursor_from_mouse(context, event)
+        return {'FINISHED'}
+    
+    def set_cursor_from_mouse(self, context, event):
+        # Get mouse position in image space
+        region = context.region
+        space = context.space_data
+        
+        if not space or space.type != 'IMAGE_EDITOR':
+            self.report({'ERROR'}, "Not in Image Editor")
+            return {'CANCELLED'}
+        
+        img = bpy.data.images.get("DICOM_Preview")
+        if not img:
+            self.report({'ERROR'}, "No DICOM preview image")
+            return {'CANCELLED'}
+        
+        # Get mouse coordinates in region
+        mouse_x = event.mouse_region_x
+        mouse_y = event.mouse_region_y
+        
+        # Image dimensions
+        img_width, img_height = img.size
+        
+        # Convert region coordinates to normalized texture coordinates (0-1)
+        view2d = region.view2d
+        texture_x, texture_y = view2d.region_to_view(mouse_x, mouse_y)
+        
+        print(f"[DICOM Cursor] Mouse region: ({mouse_x}, {mouse_y})")
+        print(f"[DICOM Cursor] Texture coords (0-1): ({texture_x:.4f}, {texture_y:.4f})")
+        print(f"[DICOM Cursor] Image size: ({img_width}, {img_height})")
+        
+        # Check if within image bounds (0-1 range)
+        if texture_x < 0 or texture_x > 1 or texture_y < 0 or texture_y > 1:
+            print(f"[DICOM Cursor] Click outside image bounds - ignoring")
+            return {'CANCELLED'}
+        
+        # Convert to pixel coordinates
+        pixel_x = int(texture_x * img_width)
+        pixel_y = int(texture_y * img_height)
+        
+        # Clamp to image bounds
+        pixel_x = max(0, min(pixel_x, img_width - 1))
+        pixel_y = max(0, min(pixel_y, img_height - 1))
+        
+        print(f"[DICOM Cursor] Pixel coords: ({pixel_x}, {pixel_y})")
+        
+        # Get current slice information
+        slice_index = context.scene.dicom_preview_slice_index
+        
+        # Load patient and series data
+        if not context.scene.dicom_patient_data:
+            self.report({'WARNING'}, "No patient data loaded")
+            return {'CANCELLED'}
+        
+        try:
+            from .patient import Patient
+            patient = Patient.from_json(context.scene.dicom_patient_data)
+            
+            # Get the series being previewed
+            series_list = eval(context.scene.dicom_series_data)
+            if not series_list:
+                return {'CANCELLED'}
+            
+            series_data = series_list[0]
+            file_paths = series_data['files']
+            
+            if slice_index >= len(file_paths):
+                return {'CANCELLED'}
+            
+            # Load the current slice to get spatial information
+            from .dicom_io import load_slice
+            slice_data = load_slice(file_paths[slice_index])
+            
+            if not slice_data:
+                self.report({'WARNING'}, "Failed to load slice data")
+                return {'CANCELLED'}
+            
+            # Get DICOM spatial information
+            position = slice_data.get('position', [0, 0, 0])  # ImagePositionPatient
+            orientation = slice_data.get('orientation', [1, 0, 0, 0, 1, 0])  # ImageOrientationPatient
+            pixel_spacing = slice_data.get('pixel_spacing', (1.0, 1.0))  # (row, col) spacing in mm
+            
+            print(f"[DICOM Cursor] Slice {slice_index + 1}/{len(file_paths)}")
+            print(f"[DICOM Cursor] ImagePositionPatient: {position}")
+            print(f"[DICOM Cursor] ImageOrientationPatient: {orientation}")
+            print(f"[DICOM Cursor] PixelSpacing: {pixel_spacing}")
+            
+            # Convert 2D pixel coordinates to 3D patient coordinates
+            # DICOM coordinate system:
+            # - ImagePositionPatient: position of top-left pixel (0,0)
+            # - ImageOrientationPatient: [row_x, row_y, row_z, col_x, col_y, col_z]
+            # - PixelSpacing: [row_spacing, col_spacing]
+            
+            import numpy as np
+            
+            # Row and column direction vectors
+            row_vec = np.array(orientation[:3])  # Direction along rows (Y in image)
+            col_vec = np.array(orientation[3:])  # Direction along columns (X in image)
+            
+            print(f"[DICOM Cursor] Row vector: {row_vec}")
+            print(f"[DICOM Cursor] Col vector: {col_vec}")
+            
+            # Image is flipped in preview, so adjust Y coordinate
+            pixel_y_flipped = img_height - 1 - pixel_y
+            
+            print(f"[DICOM Cursor] Pixel Y flipped: {pixel_y} -> {pixel_y_flipped}")
+            
+            # Calculate 3D position
+            # Position = ImagePosition + (col * col_spacing * col_vec) + (row * row_spacing * row_vec)
+            pos_3d = np.array(position) + \
+                     (pixel_x * pixel_spacing[1] * col_vec) + \
+                     (pixel_y_flipped * pixel_spacing[0] * row_vec)
+            
+            print(f"[DICOM Cursor] 3D position (DICOM): {pos_3d}")
+            
+            # Find the volume object to use its actual location
+            volume_obj = None
+            for obj in bpy.data.objects:
+                if obj.type == 'VOLUME' and '_Volume_' in obj.name:
+                    volume_obj = obj
+                    break
+            
+            if volume_obj:
+                # Use the volume's actual world location as reference (this is the pivot = top-left)
+                vol_loc = volume_obj.location
+                
+                # Image editor uses Cartesian: (0,0) = bottom-left, (0,height) = top-left
+                # DICOM ImagePositionPatient = top-left = (0, height) in image coords
+                # So we need to flip Y: pixel_y_from_top = height - pixel_y
+                pixel_y_from_top = img_height - pixel_y
+                
+                # Calculate image height in mm
+                img_height_mm = img_height * pixel_spacing[0]
+                
+                # Calculate DICOM position for this pixel
+                # Starting from ImagePositionPatient (top-left), move by pixel offsets
+                dicom_x = position[0] + pixel_x * pixel_spacing[1]
+                dicom_y = position[1] + pixel_y_from_top * pixel_spacing[0]
+                
+                # Calculate offset from pivot (ImagePositionPatient)
+                relative_x = dicom_x - position[0]
+                relative_y = dicom_y - position[1]
+                
+                # Convert to meters
+                offset_x = relative_x / 1000.0
+                offset_y = relative_y / 1000.0
+                
+                # Volume Y length in meters
+                volume_y_length = img_height_mm / 1000.0
+                
+                blender_pos = (
+                    vol_loc[0] - offset_x,
+                    vol_loc[1] - (volume_y_length - offset_y) + volume_y_length,
+                    pos_3d[2] / 1000.0
+                )
+                
+                print(f"[DICOM Cursor] ===== FINAL COORDINATES =====")
+                print(f"[DICOM Cursor] Image click: pixel ({pixel_x}, {pixel_y}) from bottom")
+                print(f"[DICOM Cursor] Pixel from top: {pixel_y_from_top}")
+                print(f"[DICOM Cursor] Volume location (pivot): {vol_loc}")
+                print(f"[DICOM Cursor] DICOM position: ({dicom_x:.2f}, {dicom_y:.2f})")
+                print(f"[DICOM Cursor] Offset from pivot: ({relative_x:.2f}, {relative_y:.2f}) mm")
+                print(f"[DICOM Cursor] Blender offset: ({offset_x:.4f}, {offset_y:.4f}) m")
+                print(f"[DICOM Cursor] 3D position: {blender_pos}")
+            else:
+                print(f"[DICOM Cursor] ERROR: No volume object found!")
+                return {'CANCELLED'}
+            
+            # Set 3D cursor
+            context.scene.cursor.location = blender_pos
+            
+            self.report({'INFO'}, 
+                f"3D Cursor set to ({blender_pos[0]:.3f}, {blender_pos[1]:.3f}, {blender_pos[2]:.3f})")
+            
+            # Redraw 3D views
+            for area in context.screen.areas:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+            
+            return {'FINISHED'}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to set 3D cursor: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'CANCELLED'}
+
 class IMAGE_OT_dicom_scroll(Operator):
     """Scroll through DICOM slices with mouse wheel"""
     bl_idname = "image.dicom_scroll"
@@ -656,7 +857,7 @@ class IMPORT_OT_dicom_preview_series(Operator):
         try:
             load_and_display_slice(context, file_paths[0], series_list[0])
             self.report({'INFO'}, f"Preview ready: {series.series_description} ({len(file_paths)} slices)")
-            self.report({'INFO'}, "Open an Image Editor to view. Use mouse wheel to scroll.")
+            self.report({'INFO'}, "Double-click on image to set 3D cursor. Use mouse wheel to scroll.")
             return {'FINISHED'}
         except Exception as e:
             self.report({'ERROR'}, f"Failed to load preview: {e}")
@@ -986,15 +1187,31 @@ classes = (
     IMPORT_OT_dicom_preview_popup,
     IMPORT_OT_dicom_open_in_editor,
     IMPORT_OT_dicom_preview_slice,
+    IMAGE_OT_dicom_set_cursor_3d,
     IMAGE_OT_dicom_scroll,
     IMPORT_OT_dicom_import_series,
 )
 
+addon_keymaps = []
+
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
+    
+    # Add keymap for double-click in Image Editor
+    wm = bpy.context.window_manager
+    kc = wm.keyconfigs.addon
+    if kc:
+        km = kc.keymaps.new(name='Image', space_type='IMAGE_EDITOR')
+        kmi = km.keymap_items.new('image.dicom_set_cursor_3d', 'LEFTMOUSE', 'DOUBLE_CLICK')
+        addon_keymaps.append((km, kmi))
 
 def unregister():
+    # Remove keymaps
+    for km, kmi in addon_keymaps:
+        km.keymap_items.remove(kmi)
+    addon_keymaps.clear()
+    
     # Clean up preview collections
     global preview_collections
     for pcoll in preview_collections.values():
