@@ -80,23 +80,12 @@ def update_tissue_alpha_dynamic(self, context):
         return
     
     stop_idx = 0  # Start from first stop
-    prev_alpha = 0.0  # Start transparent
     
     for tissue in tissues:
         tissue_name = tissue.get('name', '')
         tissue_alpha = alpha_map.get(tissue_name, tissue.get('alpha_default', 1.0))
         
-        # START stop - uses previous tissue's alpha for smooth transition
-        if stop_idx < len(elements):
-            elements[stop_idx].color = (
-                elements[stop_idx].color[0],
-                elements[stop_idx].color[1],
-                elements[stop_idx].color[2],
-                prev_alpha
-            )
-            stop_idx += 1
-        
-        # END stop - uses current tissue's alpha
+        # START stop - uses current tissue's alpha (sharp transition)
         if stop_idx < len(elements):
             elements[stop_idx].color = (
                 elements[stop_idx].color[0],
@@ -106,7 +95,15 @@ def update_tissue_alpha_dynamic(self, context):
             )
             stop_idx += 1
         
-        prev_alpha = tissue_alpha
+        # END stop - uses current tissue's alpha (sharp transition)
+        if stop_idx < len(elements):
+            elements[stop_idx].color = (
+                elements[stop_idx].color[0],
+                elements[stop_idx].color[1],
+                elements[stop_idx].color[2],
+                tissue_alpha
+            )
+            stop_idx += 1
     
     print(f"[Properties] Updated {stop_idx} color ramp stops")
 

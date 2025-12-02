@@ -92,12 +92,23 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     for tissue in preset.tissues:
         start_pos = hu_to_normalized(tissue["hu_min"])
         end_pos = hu_to_normalized(tissue["hu_max"])
+        
+        # Support both old format (color_rgb) and new format (color_start_rgb/color_end_rgb)
+        if "color_start_rgb" in tissue and "color_end_rgb" in tissue:
+            color_start = tuple(tissue["color_start_rgb"])
+            color_end = tuple(tissue["color_end_rgb"])
+        else:
+            # Fallback to old format
+            color_start = tuple(tissue["color_rgb"])
+            color_end = tuple(tissue["color_rgb"])
+        
         tissue_positions.append({
             "name": tissue["name"],
             "label": tissue["label"],
             "start_pos": start_pos,
             "end_pos": end_pos,
-            "color_rgb": tuple(tissue["color_rgb"]),
+            "color_start": color_start,
+            "color_end": color_end,
             "alpha": tissue["alpha_default"]
         })
         log(f"  {tissue['label']}: {start_pos:.4f} - {end_pos:.4f} (HU {tissue['hu_min']} - {tissue['hu_max']})")
@@ -112,28 +123,29 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     # Blending happens in gaps between tissues, not within tissue ranges
     
     for i, tissue in enumerate(tissue_positions):
-        # Both START and END use this tissue's color/alpha for sharp transitions
-        tissue_color = tissue["color_rgb"]
+        # Use start and end colors for gradient within tissue
+        color_start = tissue["color_start"]
+        color_end = tissue["color_end"]
         tissue_alpha = tissue["alpha"]
         
         if i == 0:
             # First tissue: use existing elements[0] and [1]
             ramp_color.color_ramp.elements[0].position = tissue["start_pos"]
-            ramp_color.color_ramp.elements[0].color = (*tissue_color, tissue_alpha)
-            log(f"  Stop {i*2}: {tissue['label']} START at {tissue['start_pos']:.4f} (color: {tissue_color}, alpha: {tissue_alpha})")
+            ramp_color.color_ramp.elements[0].color = (*color_start, tissue_alpha)
+            log(f"  Stop {i*2}: {tissue['label']} START at {tissue['start_pos']:.4f} (color: {color_start}, alpha: {tissue_alpha})")
             
             ramp_color.color_ramp.elements[1].position = tissue["end_pos"]
-            ramp_color.color_ramp.elements[1].color = (*tissue_color, tissue_alpha)
-            log(f"  Stop {i*2+1}: {tissue['label']} END at {tissue['end_pos']:.4f} (color: {tissue_color}, alpha: {tissue_alpha})")
+            ramp_color.color_ramp.elements[1].color = (*color_end, tissue_alpha)
+            log(f"  Stop {i*2+1}: {tissue['label']} END at {tissue['end_pos']:.4f} (color: {color_end}, alpha: {tissue_alpha})")
         else:
             # Subsequent tissues: create new elements
             elem_start = ramp_color.color_ramp.elements.new(tissue["start_pos"])
-            elem_start.color = (*tissue_color, tissue_alpha)
-            log(f"  Stop {i*2}: {tissue['label']} START at {tissue['start_pos']:.4f} (color: {tissue_color}, alpha: {tissue_alpha})")
+            elem_start.color = (*color_start, tissue_alpha)
+            log(f"  Stop {i*2}: {tissue['label']} START at {tissue['start_pos']:.4f} (color: {color_start}, alpha: {tissue_alpha})")
             
             elem_end = ramp_color.color_ramp.elements.new(tissue["end_pos"])
-            elem_end.color = (*tissue_color, tissue_alpha)
-            log(f"  Stop {i*2+1}: {tissue['label']} END at {tissue['end_pos']:.4f} (color: {tissue_color}, alpha: {tissue_alpha})")
+            elem_end.color = (*color_end, tissue_alpha)
+            log(f"  Stop {i*2+1}: {tissue['label']} END at {tissue['end_pos']:.4f} (color: {color_end}, alpha: {tissue_alpha})")
     
     # Math.002: Scale alpha by preset multiplier
     math_002 = nodes.new("ShaderNodeMath")

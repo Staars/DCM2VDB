@@ -18,7 +18,8 @@
         "label": "Air",
         "hu_min": -1024,
         "hu_max": -960,
-        "color_rgb": [0.0, 0.0, 0.0],
+        "color_start_rgb": [0.0, 0.0, 0.0],
+        "color_end_rgb": [0.0, 0.0, 0.0],
         "alpha_default": 0.0,
         "order": 1
       },
@@ -27,7 +28,8 @@
         "label": "Lung",
         "hu_min": -950,
         "hu_max": -200,
-        "color_rgb": [0.4, 0.4, 0.5],
+        "color_start_rgb": [0.4, 0.4, 0.5],
+        "color_end_rgb": [0.4, 0.4, 0.5],
         "alpha_default": 0.02,
         "order": 2
       },
@@ -36,7 +38,8 @@
         "label": "Fat",
         "hu_min": -120,
         "hu_max": -90,
-        "color_rgb": [0.776, 0.565, 0.018],
+        "color_start_rgb": [0.776, 0.565, 0.018],
+        "color_end_rgb": [0.776, 0.565, 0.018],
         "alpha_default": 0.059,
         "order": 3
       },
@@ -45,7 +48,8 @@
         "label": "Liquid",
         "hu_min": 0,
         "hu_max": 25,
-        "color_rgb": [0.2, 0.5, 0.9],
+        "color_start_rgb": [0.2, 0.5, 0.9],
+        "color_end_rgb": [0.3, 0.5, 0.7],
         "alpha_default": 0.05,
         "order": 4
       },
@@ -53,17 +57,19 @@
         "name": "soft_tissue",
         "label": "Soft Tissue",
         "hu_min": 35,
-        "hu_max": 75,
-        "color_rgb": [0.906, 0.071, 0.029],
+        "hu_max": 83,
+        "color_start_rgb": [0.906, 0.071, 0.029],
+        "color_end_rgb": [0.906, 0.071, 0.029],
         "alpha_default": 1.0,
         "order": 5
       },
       {
         "name": "connective_tissue",
         "label": "Connective Tissue",
-        "hu_min": 76,
-        "hu_max": 90,
-        "color_rgb": [0.8, 0.6, 0.4],
+        "hu_min": 85,
+        "hu_max": 130,
+        "color_start_rgb": [0.7, 0.6, 0.45],
+        "color_end_rgb": [0.7, 0.6, 0.55],
         "alpha_default": 1.0,
         "order": 6
       },
@@ -72,7 +78,8 @@
         "label": "Bone",
         "hu_min": 200,
         "hu_max": 1495,
-        "color_rgb": [0.9, 0.92, 0.65],
+        "color_start_rgb": [0.9, 0.92, 0.65],
+        "color_end_rgb": [0.9, 0.92, 0.65],
         "alpha_default": 1.0,
         "order": 7
       },
@@ -81,7 +88,8 @@
         "label": "Metal",
         "hu_min": 1500,
         "hu_max": 3071,
-        "color_rgb": [0.95, 0.92, 0.95],
+        "color_start_rgb": [0.95, 0.92, 0.95],
+        "color_end_rgb": [0.95, 0.92, 0.95],
         "alpha_default": 1.0,
         "order": 8
       }
