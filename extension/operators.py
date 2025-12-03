@@ -538,12 +538,24 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
             
             print(f"[DICOM Cursor] 3D position (DICOM): {pos_3d}")
             
-            # Find the volume object to use its actual location
+            # Find the volume object for THIS series
+            # Get series number from the DICOM file
+            series_number = slice_data["ds"].SeriesNumber if hasattr(slice_data["ds"], "SeriesNumber") else None
+            
             volume_obj = None
-            for obj in bpy.data.objects:
-                if obj.type == 'VOLUME' and '_Volume_' in obj.name:
-                    volume_obj = obj
-                    break
+            if series_number:
+                # Try to find volume with matching series number
+                for obj in bpy.data.objects:
+                    if obj.type == 'VOLUME' and f'_S{series_number}' in obj.name:
+                        volume_obj = obj
+                        break
+            
+            # Fallback: use any volume if series number not found
+            if not volume_obj:
+                for obj in bpy.data.objects:
+                    if obj.type == 'VOLUME' and '_Volume_' in obj.name:
+                        volume_obj = obj
+                        break
             
             if volume_obj:
                 # Use the volume's actual world location as reference (this is the pivot = top-left)
