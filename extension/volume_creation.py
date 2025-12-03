@@ -9,62 +9,9 @@ import math
 
 from .dicom_io import log
 from .constants import *
-from .volume_utils import clean_temp_dir, clean_old_volumes, save_debug_slice
-from .materials import create_volume_material, create_mesh_material
+from .volume_utils import clean_old_volumes, save_debug_slice
+from .materials import create_volume_material
 from .geometry_nodes import create_tissue_mesh_geonodes
-
-
-def create_masked_vdb(vol_array, mask, tissue_name, spacing_meters, unique_id):
-    """Create a VDB file with masked volume data"""
-    import openvdb as vdb
-    
-    # Apply mask: set non-tissue voxels to very low value (will be below any threshold)
-    masked_vol = np.where(mask, vol_array, -10000.0).astype(np.float32)
-    
-    # Create VDB grid
-    grid = vdb.FloatGrid()
-    grid.copyFromArray(masked_vol)
-    grid.name = "density"
-    
-    # Set transform (same as original volume)
-    transform_matrix = [
-        [spacing_meters[2], 0, 0, 0],  # Z
-        [0, spacing_meters[1], 0, 0],  # Y
-        [0, 0, spacing_meters[0], 0],  # X
-        [0, 0, 0, 1]
-    ]
-    grid.transform = vdb.createLinearTransform(transform_matrix)
-    
-    # Save to temp file
-    temp_vdb = os.path.join(tempfile.gettempdir(), f"ct_{tissue_name}_{unique_id}.vdb")
-    vdb.write(temp_vdb, grids=[grid])
-    
-    log(f"Created masked VDB for {tissue_name}: {temp_vdb}")
-    return temp_vdb
-
-
-def create_tissue_volumes(vol_array, spacing_meters, unique_id, fat_min, fat_max, fluid_min, fluid_max, soft_min, soft_max, bone_min):
-    """Create 4 masked VDB volumes for different tissue types"""
-    log("Creating tissue-specific VDB volumes...")
-    
-    # Create masks for each tissue type
-    fat_mask = (vol_array >= fat_min) & (vol_array <= fat_max)
-    fluid_mask = (vol_array >= fluid_min) & (vol_array <= fluid_max)
-    soft_mask = (vol_array >= soft_min) & (vol_array <= soft_max)
-    bone_mask = (vol_array >= bone_min)
-    
-    # Create VDB files
-    fat_vdb = create_masked_vdb(vol_array, fat_mask, "fat", spacing_meters, unique_id)
-    fluid_vdb = create_masked_vdb(vol_array, fluid_mask, "fluid", spacing_meters, unique_id)
-    soft_vdb = create_masked_vdb(vol_array, soft_mask, "soft", spacing_meters, unique_id)
-    bone_vdb = create_masked_vdb(vol_array, bone_mask, "bone", spacing_meters, unique_id)
-    
-    return {
-        'fat': fat_vdb,
-        'fluid': fluid_vdb,
-        'soft': soft_vdb,
-        'bone': bone_vdb
-    }
 
 
 def create_volume(slices, series_number=1):

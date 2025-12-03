@@ -186,8 +186,3 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     log(f"Volume material created for normalized data")
     log(f"Original HU range: {vol_min:.0f} to {vol_max:.0f}")
     log(f"VDB contains normalized 0-1 values")
-
-def create_mesh_material(vol_obj, vol_min, vol_max):
-    """TODO: Reimplement mesh material for tissue-specific visualization"""
-    log("Mesh material creation - placeholder (to be reimplemented)")
-    pass

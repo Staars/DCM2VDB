@@ -5,19 +5,6 @@ import glob
 import tempfile
 from .dicom_io import log
 
-def clean_temp_dir():
-    """Clean up old temporary VDB files"""
-    try:
-        old_vdbs = glob.glob(os.path.join(tempfile.gettempdir(), "ct_volume_*.vdb"))
-        for old_vdb in old_vdbs:
-            try:
-                os.remove(old_vdb)
-                log(f"Cleaned up old VDB: {old_vdb}")
-            except:
-                pass
-    except:
-        pass
-
 def clean_old_volumes(name_prefix="CT_Volume"):
     """Remove old volume objects, materials, and volume data"""
     import bpy
