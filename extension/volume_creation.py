@@ -256,18 +256,32 @@ def create_volume(slices, series_number=1):
     # Convert DICOM patient coordinates to Blender world coordinates
     # DICOM: X=right, Y=anterior, Z=superior (head)
     # Blender: X=right, Y=back, Z=up
-    # We need to transform: DICOM (x,y,z) → Blender (x, -y, z) and scale to meters
+    # With 270° Y-axis rotation applied, negate X
     blender_location = (
-        first_position[0] * 0.001,   # X: right (mm → m)
+        -first_position[0] * 0.001,  # X: negate for 270° rotation (mm → m)
         -first_position[1] * 0.001,  # Y: anterior → back (mm → m, flip)
         first_position[2] * 0.001    # Z: superior (mm → m)
     )
     
-    log(f"DICOM ImagePositionPatient: {first_position} mm")
-    log(f"Blender world location: {blender_location} m")
+    # Get FrameOfReferenceUID and ImageOrientationPatient from first slice
+    frame_of_ref = slices[0]["ds"].FrameOfReferenceUID if hasattr(slices[0]["ds"], "FrameOfReferenceUID") else "NOT SET"
+    orientation = slices[0].get("orientation", [1, 0, 0, 0, 1, 0])
+    
+    log(f"===== VOLUME POSITIONING DEBUG =====")
+    log(f"Series number: {series_number}")
+    log(f"Number of slices: {len(slices)}")
+    log(f"Volume dimensions (voxels): {vol.shape}")
+    log(f"FrameOfReferenceUID: {frame_of_ref}")
+    log(f"ImageOrientationPatient: {orientation}")
+    log(f"First slice ImagePositionPatient: {first_position} mm")
+    log(f"Last slice ImagePositionPatient: {slices[-1]['position']} mm")
+    log(f"Pixel spacing: {slices[0]['pixel_spacing']} mm")
+    log(f"Slice thickness: {slices[0]['slice_thickness']} mm")
+    log(f"Calculated Blender location: {blender_location} m")
     
     # Set position
     vol_obj.location = blender_location
+    log(f"Volume object location set to: {vol_obj.location}")
     
     # Rotate volume to correct orientation
     # Patient Z-axis (head-to-feet) should align with Blender Z-axis (up-down)
