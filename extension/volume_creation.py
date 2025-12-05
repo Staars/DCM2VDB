@@ -6,13 +6,15 @@ import tempfile
 import numpy as np
 import uuid
 import math
+import logging
 
-from .dicom_io import log
 from .constants import *
 from .volume_utils import clean_old_volumes, save_debug_slice
 from .materials import create_volume_material
 from .geometry_nodes import create_tissue_mesh_geonodes
 
+# Get logger for this extension
+log = logging.getLogger(__name__)
 
 def create_volume(slices, series_number=1):
     """Create a volume object from DICOM slices with proper Hounsfield units.
@@ -51,6 +53,33 @@ def create_volume(slices, series_number=1):
     
     if len(slices) < MIN_SLICES_REQUIRED:
         raise ValueError(f"Need at least {MIN_SLICES_REQUIRED} slices with matching dimensions")
+    
+    # Apply denoising to each slice if enabled (FAST - 2D slice-by-slice with scipy)
+    if bpy.context.scene.denoise_enabled:
+        log.info("=" * 60)
+        log.info(f"DENOISING ENABLED: {bpy.context.scene.denoise_method}, Strength: {bpy.context.scene.denoise_strength}")
+        log.info(f"Processing {len(slices)} slices for Series {series_number}...")
+        
+        from .volume_utils import denoise_slice_scipy
+        
+        denoised_slices = []
+        for i, slice_data in enumerate(slices):
+            denoised_pixels = denoise_slice_scipy(
+                slice_data["pixels"],
+                method=bpy.context.scene.denoise_method,
+                strength=bpy.context.scene.denoise_strength
+            )
+            slice_data["pixels"] = denoised_pixels
+            denoised_slices.append(slice_data)
+            
+            # Log progress every 10%
+            if (i + 1) % max(1, len(slices) // 10) == 0:
+                progress = (i + 1) / len(slices)
+                log.info(f"  Series {series_number} denoising: {progress*100:.0f}% ({i+1}/{len(slices)} slices)")
+        
+        slices = denoised_slices
+        log.info(f"Series {series_number} denoising complete!")
+        log.info("=" * 60)
      
     vol = np.stack([s["pixels"] for s in slices])
     depth, height, width = vol.shape
@@ -61,47 +90,47 @@ def create_volume(slices, series_number=1):
     
     # Validate slice thickness
     if not slice_thickness or slice_thickness <= 0:
-        log(f"WARNING: Invalid slice_thickness ({slice_thickness}), using pixel spacing as fallback")
+        log.warning(f"Invalid slice_thickness ({slice_thickness}), using pixel spacing as fallback")
         slice_thickness = max(pixel_spacing)
     
     # spacing order: [X, Y, Z]
     spacing = [pixel_spacing[1], pixel_spacing[0], slice_thickness]
     
     # Log spacing values
-    log(f"Pixel spacing (X, Y): {pixel_spacing}")
-    log(f"Slice thickness (Z): {slice_thickness}")
-    log(f"Spacing (X, Y, Z) in mm: {spacing}")
+    log.debug(f"Pixel spacing (X, Y): {pixel_spacing}")
+    log.debug(f"Slice thickness (Z): {slice_thickness}")
+    log.debug(f"Spacing (X, Y, Z) in mm: {spacing}")
     
     # Calculate and log physical dimensions
     phys_x = width * spacing[0]
     phys_y = height * spacing[1]
     phys_z = depth * spacing[2]
-    log(f"Physical dimensions (mm): {phys_x:.1f} x {phys_y:.1f} x {phys_z:.1f}")
-    log(f"Physical dimensions (cm): {phys_x/10:.1f} x {phys_y/10:.1f} x {phys_z/10:.1f}")
+    log.debug(f"Physical dimensions (mm): {phys_x:.1f} x {phys_y:.1f} x {phys_z:.1f}")
+    log.debug(f"Physical dimensions (cm): {phys_x/10:.1f} x {phys_y/10:.1f} x {phys_z/10:.1f}")
     
     # Get value range for info
     vol_min, vol_max = vol.min(), vol.max()
-    log(f"Creating volume: {width}x{height}x{depth}, spacing: {spacing}")
-    log(f"RAW value range: {vol_min:.1f} to {vol_max:.1f} HU")
+    log.info(f"Creating volume: {width}x{height}x{depth}, spacing: {spacing}")
+    log.info(f"RAW value range: {vol_min:.1f} to {vol_max:.1f} HU")
     
     # Clean up invalid values (padding, errors)
     if vol_min < EXTREME_NEGATIVE_THRESHOLD:
-        log(f"WARNING: Found extreme negative values (min: {vol_min:.1f}), likely padding. Clamping to {EXTREME_NEGATIVE_CLAMP}")
+        log.warning(f"Found extreme negative values (min: {vol_min:.1f}), likely padding. Clamping to {EXTREME_NEGATIVE_CLAMP}")
         vol = np.clip(vol, EXTREME_NEGATIVE_CLAMP, vol_max)
         vol_min = vol.min()
     
     # Recalculate stats after cleaning
     vol_mean = vol.mean()
     vol_std = vol.std()
-    log(f"CLEANED value range: {vol_min:.1f} to {vol_max:.1f} HU")
-    log(f"Mean: {vol_mean:.1f}, Std: {vol_std:.1f}")
-    log(f"Data type: {vol.dtype}, Shape: {vol.shape}")
+    log.info(f"CLEANED value range: {vol_min:.1f} to {vol_max:.1f} HU")
+    log.debug(f"Mean: {vol_mean:.1f}, Std: {vol_std:.1f}")
+    log.debug(f"Data type: {vol.dtype}, Shape: {vol.shape}")
     
     # Check for data issues
     unique_values = len(np.unique(vol))
-    log(f"Unique values in volume: {unique_values}")
+    log.debug(f"Unique values in volume: {unique_values}")
     if unique_values < 10:
-        log("WARNING: Very few unique values - data might be corrupted or improperly scaled")
+        log.warning("Very few unique values - data might be corrupted or improperly scaled")
     
     # Sample some values to verify data looks reasonable
     sample_indices = [
@@ -109,9 +138,9 @@ def create_volume(slices, series_number=1):
         (depth//2, height//2, width//2),
         (3*depth//4, height//2, width//2)
     ]
-    log("Sample voxel values (z=25%, 50%, 75% center):")
+    log.debug("Sample voxel values (z=25%, 50%, 75% center):")
     for idx in sample_indices:
-        log(f"  {idx}: {vol[idx]:.1f} HU")
+        log.debug(f"  {idx}: {vol[idx]:.1f} HU")
     
     # Debug: Save middle slice as PNG
     save_debug_slice(vol)
@@ -126,7 +155,7 @@ def create_volume(slices, series_number=1):
     # Save numpy array to temp file for recomputation
     numpy_path = os.path.join(tempfile.gettempdir(), f"ct_volume_{unique_id}.npy")
     np.save(numpy_path, vol)
-    log(f"Saved volume data to: {numpy_path}")
+    log.info(f"Saved volume data to: {numpy_path}")
     
     # Store in scene for recomputation
     bpy.context.scene.dicom_volume_data_path = numpy_path
@@ -139,7 +168,7 @@ def create_volume(slices, series_number=1):
     # Save volume data to temporary VDB file
     temp_vdb = os.path.join(tempfile.gettempdir(), f"ct_volume_{unique_id}.vdb")
     
-    log(f"Creating VDB file: {temp_vdb}")
+    log.info(f"Creating VDB file: {temp_vdb}")
     
     try:
         import openvdb as vdb
@@ -152,13 +181,13 @@ def create_volume(slices, series_number=1):
         # Clamp to 0-1 range (in case data exceeds standard range)
         vol_normalized = np.clip(vol_normalized, 0.0, 1.0)
         
-        log(f"Original numpy array shape (Z,Y,X): {vol_float.shape}")
-        log(f"This means: {depth} slices of {height}x{width} images")
-        log(f"Normalized range: {vol_normalized.min():.6f} to {vol_normalized.max():.6f}")
+        log.debug(f"Original numpy array shape (Z,Y,X): {vol_float.shape}")
+        log.debug(f"This means: {depth} slices of {height}x{width} images")
+        log.debug(f"Normalized range: {vol_normalized.min():.6f} to {vol_normalized.max():.6f}")
         
         vol_for_vdb = vol_normalized
         
-        log(f"VDB input shape: {vol_for_vdb.shape}")
+        log.debug(f"VDB input shape: {vol_for_vdb.shape}")
         
         # Create grid from array
         grid = vdb.FloatGrid()
@@ -167,7 +196,7 @@ def create_volume(slices, series_number=1):
         
         # Convert spacing to meters
         spacing_meters = [s * 0.001 for s in spacing]  # [X, Y, Z] in meters
-        log(f"Spacing in meters (X, Y, Z): {spacing_meters}")
+        log.debug(f"Spacing in meters (X, Y, Z): {spacing_meters}")
         
         # Fix the OpenVDB transform matrix
         # Our array is [Z, Y, X] order (slices, rows, columns)
@@ -180,14 +209,14 @@ def create_volume(slices, series_number=1):
         ]
         grid.transform = vdb.createLinearTransform(transform_matrix)
         
-        log(f"Transform matrix diagonal (Z, Y, X) in meters: {[spacing_meters[2], spacing_meters[1], spacing_meters[0]]}")
+        log.debug(f"Transform matrix diagonal (Z, Y, X) in meters: {[spacing_meters[2], spacing_meters[1], spacing_meters[0]]}")
         
         # Write VDB file
         vdb.write(temp_vdb, grids=[grid])
-        log(f"Wrote VDB file: {temp_vdb}")
+        log.info(f"Wrote VDB file: {temp_vdb}")
         
     except Exception as e:
-        log(f"OpenVDB error: {e}")
+        log.error(f"OpenVDB error: {e}")
         raise Exception(f"Failed to create OpenVDB file: {e}")
 
     # Load VDB file into Blender
@@ -214,21 +243,21 @@ def create_volume(slices, series_number=1):
     frame_of_ref = slices[0]["ds"].FrameOfReferenceUID if hasattr(slices[0]["ds"], "FrameOfReferenceUID") else "NOT SET"
     orientation = slices[0].get("orientation", [1, 0, 0, 0, 1, 0])
     
-    log(f"===== VOLUME POSITIONING DEBUG =====")
-    log(f"Series number: {series_number}")
-    log(f"Number of slices: {len(slices)}")
-    log(f"Volume dimensions (voxels): {vol.shape}")
-    log(f"FrameOfReferenceUID: {frame_of_ref}")
-    log(f"ImageOrientationPatient: {orientation}")
-    log(f"First slice ImagePositionPatient: {first_position} mm")
-    log(f"Last slice ImagePositionPatient: {slices[-1]['position']} mm")
-    log(f"Pixel spacing: {slices[0]['pixel_spacing']} mm")
-    log(f"Slice thickness: {slices[0]['slice_thickness']} mm")
-    log(f"Calculated Blender location: {blender_location} m")
+    log.debug(f"===== VOLUME POSITIONING DEBUG =====")
+    log.debug(f"Series number: {series_number}")
+    log.debug(f"Number of slices: {len(slices)}")
+    log.debug(f"Volume dimensions (voxels): {vol.shape}")
+    log.debug(f"FrameOfReferenceUID: {frame_of_ref}")
+    log.debug(f"ImageOrientationPatient: {orientation}")
+    log.debug(f"First slice ImagePositionPatient: {first_position} mm")
+    log.debug(f"Last slice ImagePositionPatient: {slices[-1]['position']} mm")
+    log.debug(f"Pixel spacing: {slices[0]['pixel_spacing']} mm")
+    log.debug(f"Slice thickness: {slices[0]['slice_thickness']} mm")
+    log.debug(f"Calculated Blender location: {blender_location} m")
     
     # Set position
     vol_obj.location = blender_location
-    log(f"Volume object location set to: {vol_obj.location}")
+    log.debug(f"Volume object location set to: {vol_obj.location}")
     
     # Rotate volume to correct orientation
     # Patient Z-axis (head-to-feet) should align with Blender Z-axis (up-down)
@@ -236,12 +265,12 @@ def create_volume(slices, series_number=1):
     vol_obj.rotation_euler = (0, math.radians(270), 0)
     
     vol_obj.scale = (1.0, 1.0, 1.0)
-    log(f"Imported volume scale: {vol_obj.scale}")
-    log(f"Imported volume rotation: {vol_obj.rotation_euler}")
-    log(f"Imported volume dimensions: {vol_obj.dimensions}")
+    log.debug(f"Imported volume scale: {vol_obj.scale}")
+    log.debug(f"Imported volume rotation: {vol_obj.rotation_euler}")
+    log.debug(f"Imported volume dimensions: {vol_obj.dimensions}")
     
     expected_dims = (width * spacing_meters[0], height * spacing_meters[1], depth * spacing_meters[2])
-    log(f"Expected dimensions (meters): {expected_dims}")
+    log.debug(f"Expected dimensions (meters): {expected_dims}")
     
     # Create volume material with modality detection
     series_desc = slices[0]["ds"].SeriesDescription if hasattr(slices[0]["ds"], "SeriesDescription") else ""
@@ -255,10 +284,10 @@ def create_volume(slices, series_number=1):
     current_preset = bpy.context.scene.dicom_active_material_preset
     
     if detected_preset != current_preset or len(bpy.context.scene.dicom_tissue_alphas) == 0:
-        log(f"Updating tissue alphas from '{current_preset}' to '{detected_preset}'")
+        log.info(f"Updating tissue alphas from '{current_preset}' to '{detected_preset}'")
         initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
     else:
-        log(f"Tissue alphas already match preset '{detected_preset}'")
+        log.debug(f"Tissue alphas already match preset '{detected_preset}'")
     
     # Create meshes based on preset definitions
     from .material_presets import load_preset, get_preset_for_modality
@@ -266,9 +295,9 @@ def create_volume(slices, series_number=1):
     preset = load_preset(preset_name)
     
     if preset and preset.meshes:
-        log("=" * 60)
-        log(f"Creating {len(preset.meshes)} mesh(es) from preset...")
-        log("=" * 60)
+        log.info("=" * 60)
+        log.info(f"Creating {len(preset.meshes)} mesh(es) from preset...")
+        log.info("=" * 60)
         
         for mesh_def in preset.meshes:
             mesh_name = mesh_def.get("name", "mesh")
@@ -285,15 +314,15 @@ def create_volume(slices, series_number=1):
             old_mesh = bpy.data.objects.get(mesh_obj_name)
             if old_mesh:
                 bpy.data.objects.remove(old_mesh, do_unlink=True)
-                log(f"Removed old {mesh_obj_name} object")
+                log.debug(f"Removed old {mesh_obj_name} object")
             
             # Get or create shared mesh material
             mat_mesh = bpy.data.materials.get(mesh_mat_name)
             
             if mat_mesh:
-                log(f"Reusing existing material: {mesh_mat_name}")
+                log.debug(f"Reusing existing material: {mesh_mat_name}")
             else:
-                log(f"Creating new shared material: {mesh_mat_name}")
+                log.info(f"Creating new shared material: {mesh_mat_name}")
                 mat_mesh = bpy.data.materials.new(mesh_mat_name)
                 mat_mesh.use_nodes = True
                 nodes = mat_mesh.node_tree.nodes
@@ -338,7 +367,7 @@ def create_volume(slices, series_number=1):
                 links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
             
             # Create mesh object
-            log(f"Creating {mesh_label} mesh object...")
+            log.info(f"Creating {mesh_label} mesh object...")
             mesh_obj = vol_obj.copy()
             mesh_obj.name = mesh_obj_name
             mesh_obj.data = vol_obj.data  # Share VDB data
@@ -353,13 +382,13 @@ def create_volume(slices, series_number=1):
             if mesh_mod:
                 mesh_mod.show_viewport = True  # Visible by default
                 mesh_mod.show_render = True
-                log(f"{mesh_label} mesh created (visible)")
+                log.info(f"{mesh_label} mesh created (visible)")
             else:
-                log(f"ERROR: {mesh_label} modifier creation failed!")
+                log.error(f"{mesh_label} modifier creation failed!")
     else:
-        log("No mesh definitions in preset - skipping mesh creation")
+        log.debug("No mesh definitions in preset - skipping mesh creation")
     
-    log(f"Volume created with Hounsfield units preserved ({vol_min:.1f} to {vol_max:.1f})")
-    log("=" * 60)
+    log.info(f"Volume created with Hounsfield units preserved ({vol_min:.1f} to {vol_max:.1f})")
+    log.info("=" * 60)
     
     return vol_obj

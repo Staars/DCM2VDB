@@ -2,7 +2,10 @@
 
 import json
 import os
-from .dicom_io import log
+import logging
+
+log = logging.getLogger(__name__)
+
 
 class MaterialPreset:
     """Represents a volume material preset"""
@@ -97,7 +100,7 @@ def get_preset_for_modality(modality, series_description=""):
             return "mri_t1_brain"
     else:
         # Unknown modality, default to CT
-        log(f"Unknown modality '{modality}', defaulting to CT preset")
+        log.info(f"Unknown modality '{modality}', defaulting to CT preset")
         return "ct_standard"
 
 def load_preset(preset_name):
@@ -107,7 +110,7 @@ def load_preset(preset_name):
     preset_path = os.path.join(presets_dir, f"{preset_name}.json")
     
     if not os.path.exists(preset_path):
-        log(f"Preset not found: {preset_path}")
+        log.warning(f"Preset not found: {preset_path}")
         return None
     
     try:
@@ -115,10 +118,10 @@ def load_preset(preset_name):
             data = json.load(f)
         
         preset = MaterialPreset(data)
-        log(f"Loaded preset: {preset.name} ({preset.modality})")
+        log.info(f"Loaded preset: {preset.name} ({preset.modality})")
         return preset
     except Exception as e:
-        log(f"Failed to load preset {preset_name}: {e}")
+        log.error(f"Failed to load preset {preset_name}: {e}")
         return None
 
 
@@ -155,8 +158,8 @@ def save_preset(preset, preset_name):
         with open(preset_path, 'w') as f:
             json.dump(preset.to_dict(), f, indent=2)
         
-        log(f"Saved preset: {preset_path}")
+        log.info(f"Saved preset: {preset_path}")
         return True
     except Exception as e:
-        log(f"Failed to save preset {preset_name}: {e}")
+        log.error(f"Failed to save preset {preset_name}: {e}")
         return False

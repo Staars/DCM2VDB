@@ -13,12 +13,19 @@ import bpy
 import sys
 import os
 import subprocess
+import logging
 
-# Install bundled wheels if pydicom is not available
-def ensure_pydicom():
-    """Install pydicom from bundled wheel if not already available"""
+# Get logger for this extension
+log = logging.getLogger(__name__)
+
+# Install bundled wheels if packages are not available
+def ensure_package(package_name, import_name=None):
+    """Install package from bundled wheel if not already available"""
+    if import_name is None:
+        import_name = package_name
+    
     try:
-        import pydicom
+        __import__(import_name)
         return True
     except ImportError:
         pass
@@ -28,45 +35,53 @@ def ensure_pydicom():
     wheels_dir = os.path.join(addon_dir, "wheels")
     
     if not os.path.exists(wheels_dir):
-        print(f"[DICOM] Wheels directory not found: {wheels_dir}")
+        log.warning(f"Wheels directory not found: {wheels_dir}")
         return False
     
-    # Find the pydicom wheel
-    wheel_files = [f for f in os.listdir(wheels_dir) if f.startswith("pydicom") and f.endswith(".whl")]
+    # Find the wheel for this package
+    wheel_files = [f for f in os.listdir(wheels_dir) if f.startswith(package_name) and f.endswith(".whl")]
     
     if not wheel_files:
-        print("[DICOM] No pydicom wheel found in wheels directory")
+        log.warning(f"No {package_name} wheel found in wheels directory")
         return False
     
     wheel_path = os.path.join(wheels_dir, wheel_files[0])
-    print(f"[DICOM] Installing pydicom from: {wheel_path}")
+    log.info(f"Installing {package_name} from: {wheel_path}")
     
     # Use Blender's Python to install the wheel
     python_exe = sys.executable
     
     try:
         subprocess.check_call([python_exe, "-m", "pip", "install", "--no-deps", wheel_path])
-        print("[DICOM] Successfully installed pydicom")
+        log.info(f"Successfully installed {package_name}")
         
         # Try importing again
-        import pydicom
+        __import__(import_name)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"[DICOM] Failed to install pydicom: {e}")
+        log.error(f"Failed to install {package_name}: {e}")
         return False
     except ImportError:
-        print("[DICOM] pydicom installed but import still failed")
+        log.error(f"{package_name} installed but import still failed")
         return False
 
-# Install pydicom on module load
-PYDICOM_AVAILABLE = ensure_pydicom()
+# Install required packages on module load
+PYDICOM_AVAILABLE = ensure_package("pydicom")
+SCIPY_AVAILABLE = ensure_package("scipy")
 
-# Check for pydicom availability after installation attempt
+# Check for package availability after installation attempt
 if PYDICOM_AVAILABLE:
     try:
         from pydicom import dcmread
     except ImportError:
         PYDICOM_AVAILABLE = False
+
+if SCIPY_AVAILABLE:
+    try:
+        from scipy import ndimage
+    except ImportError:
+        SCIPY_AVAILABLE = False
+        log.warning("scipy installed but import failed")
 
 if "bpy" in locals():
     import importlib

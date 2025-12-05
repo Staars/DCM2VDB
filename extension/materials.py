@@ -1,10 +1,13 @@
 """Material creation for volume and mesh visualization"""
 
 import bpy
-from .dicom_io import log
+import logging
 from .constants import *
 from .volume_utils import hu_to_normalized
 from .material_presets import load_preset
+
+# Get logger for this extension
+log = logging.getLogger(__name__)
 
 def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard", modality="CT", series_description=""):
     """Create or reuse shared volume material from preset
@@ -21,7 +24,7 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     if preset_name == "ct_standard" and modality:
         from .material_presets import get_preset_for_modality
         preset_name = get_preset_for_modality(modality, series_description)
-        log(f"Auto-detected preset: {preset_name} for modality {modality}")
+        log.info(f"Auto-detected preset: {preset_name} for modality {modality}")
     
     # Use modality-specific material name
     mat_name = f"{modality}_Volume_Material"
@@ -29,7 +32,7 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     # Check if material already exists, reuse it
     mat = bpy.data.materials.get(mat_name)
     if mat:
-        log(f"Reusing existing material: {mat_name}")
+        log.debug(f"Reusing existing material: {mat_name}")
         if len(vol_obj.data.materials) == 0:
             vol_obj.data.materials.append(mat)
         else:
@@ -39,20 +42,20 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     # Load preset
     preset = load_preset(preset_name)
     if not preset:
-        log(f"Failed to load preset '{preset_name}', using defaults")
+        log.warning(f"Failed to load preset '{preset_name}', using defaults")
         preset = load_preset("ct_standard")  # Fallback
         if not preset:
-            log("ERROR: No presets available!")
+            log.error("No presets available!")
             return
     
     # Create new shared material
-    log(f"Creating new shared material: {mat_name} from preset '{preset.name}'")
+    log.info(f"Creating new shared material: {mat_name} from preset '{preset.name}'")
     mat = bpy.data.materials.new(mat_name)
     mat.use_nodes = True
     nodes, links = mat.node_tree.nodes, mat.node_tree.links
     nodes.clear()
     
-    log("Creating volume material for NORMALIZED data (0-1 range)")
+    log.info("Creating volume material for NORMALIZED data (0-1 range)")
     
     # Output
     out = nodes.new("ShaderNodeOutputMaterial")
@@ -69,10 +72,10 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     
     # Calculate normalized air threshold from preset
     air_threshold_normalized = hu_to_normalized(preset.air_threshold)
-    log(f"Using preset HU range: {preset.hu_min} to {preset.hu_max}")
-    log(f"Actual volume HU range: {vol_min:.1f} to {vol_max:.1f}")
-    log(f"Air threshold: {preset.air_threshold} HU = {air_threshold_normalized:.6f} normalized")
-    log(f"Density multiplier: {preset.density_multiplier}")
+    log.debug(f"Using preset HU range: {preset.hu_min} to {preset.hu_max}")
+    log.debug(f"Actual volume HU range: {vol_min:.1f} to {vol_max:.1f}")
+    log.debug(f"Air threshold: {preset.air_threshold} HU = {air_threshold_normalized:.6f} normalized")
+    log.debug(f"Density multiplier: {preset.density_multiplier}")
     
     # Math: Threshold mask (air removal)
     math_threshold = nodes.new("ShaderNodeMath")
@@ -87,7 +90,7 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     ramp_color.label = "Tissue_Colors"
     
     # Calculate normalized positions from preset tissue data
-    log(f"Tissue positions (normalized):")
+    log.debug(f"Tissue positions (normalized):")
     tissue_positions = []
     for tissue in preset.tissues:
         start_pos = hu_to_normalized(tissue["hu_min"])
@@ -111,7 +114,7 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
             "color_end": color_end,
             "alpha": tissue["alpha_default"]
         })
-        log(f"  {tissue['label']}: {start_pos:.4f} - {end_pos:.4f} (HU {tissue['hu_min']} - {tissue['hu_max']})")
+        log.debug(f"  {tissue['label']}: {start_pos:.4f} - {end_pos:.4f} (HU {tissue['hu_min']} - {tissue['hu_max']})")
     
     # Configure color stops dynamically from preset
     # Remove extra default elements (keep minimum 2 required by Blender)
@@ -132,20 +135,20 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
             # First tissue: use existing elements[0] and [1]
             ramp_color.color_ramp.elements[0].position = tissue["start_pos"]
             ramp_color.color_ramp.elements[0].color = (*color_start, tissue_alpha)
-            log(f"  Stop {i*2}: {tissue['label']} START at {tissue['start_pos']:.4f} (color: {color_start}, alpha: {tissue_alpha})")
+            log.debug(f"  Stop {i*2}: {tissue['label']} START at {tissue['start_pos']:.4f} (color: {color_start}, alpha: {tissue_alpha})")
             
             ramp_color.color_ramp.elements[1].position = tissue["end_pos"]
             ramp_color.color_ramp.elements[1].color = (*color_end, tissue_alpha)
-            log(f"  Stop {i*2+1}: {tissue['label']} END at {tissue['end_pos']:.4f} (color: {color_end}, alpha: {tissue_alpha})")
+            log.debug(f"  Stop {i*2+1}: {tissue['label']} END at {tissue['end_pos']:.4f} (color: {color_end}, alpha: {tissue_alpha})")
         else:
             # Subsequent tissues: create new elements
             elem_start = ramp_color.color_ramp.elements.new(tissue["start_pos"])
             elem_start.color = (*color_start, tissue_alpha)
-            log(f"  Stop {i*2}: {tissue['label']} START at {tissue['start_pos']:.4f} (color: {color_start}, alpha: {tissue_alpha})")
+            log.debug(f"  Stop {i*2}: {tissue['label']} START at {tissue['start_pos']:.4f} (color: {color_start}, alpha: {tissue_alpha})")
             
             elem_end = ramp_color.color_ramp.elements.new(tissue["end_pos"])
             elem_end.color = (*color_end, tissue_alpha)
-            log(f"  Stop {i*2+1}: {tissue['label']} END at {tissue['end_pos']:.4f} (color: {color_end}, alpha: {tissue_alpha})")
+            log.debug(f"  Stop {i*2+1}: {tissue['label']} END at {tissue['end_pos']:.4f} (color: {color_end}, alpha: {tissue_alpha})")
     
     # Math.002: Scale alpha by preset multiplier
     math_002 = nodes.new("ShaderNodeMath")
@@ -183,6 +186,6 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     # Set viewport display settings - MUCH HIGHER for visibility
     vol_obj.data.display.density = 1.0  # High value for normalized data
     
-    log(f"Volume material created for normalized data")
-    log(f"Original HU range: {vol_min:.0f} to {vol_max:.0f}")
-    log(f"VDB contains normalized 0-1 values")
+    log.info(f"Volume material created for normalized data")
+    log.debug(f"Original HU range: {vol_min:.0f} to {vol_max:.0f}")
+    log.debug(f"VDB contains normalized 0-1 values")

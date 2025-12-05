@@ -67,7 +67,7 @@
         "name": "connective_tissue",
         "label": "Connective Tissue",
         "hu_min": 85,
-        "hu_max": 130,
+        "hu_max": 150,
         "color_start_rgb": [0.7, 0.6, 0.45],
         "color_end_rgb": [0.7, 0.6, 0.55],
         "alpha_default": 1.0,
@@ -77,7 +77,7 @@
         "name": "bone",
         "label": "Bone",
         "hu_min": 200,
-        "hu_max": 1495,
+        "hu_max": 1999,
         "color_start_rgb": [0.9, 0.92, 0.65],
         "color_end_rgb": [0.9, 0.92, 0.65],
         "alpha_default": 1.0,
@@ -86,7 +86,7 @@
       {
         "name": "metal",
         "label": "Metal",
-        "hu_min": 1500,
+        "hu_min": 2000,
         "hu_max": 3071,
         "color_start_rgb": [0.95, 0.92, 0.95],
         "color_end_rgb": [0.95, 0.92, 0.95],
@@ -99,7 +99,7 @@
     {
       "name": "bone",
       "label": "Bone",
-      "threshold": 300
+      "threshold": 280
     }
   ]
 }

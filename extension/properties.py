@@ -1,8 +1,12 @@
 """Property definitions for DICOM importer"""
 
 import bpy
+import logging
 from bpy.props import StringProperty, FloatProperty, IntProperty, CollectionProperty, BoolProperty, EnumProperty
 from bpy.types import PropertyGroup
+
+# Get logger for this extension
+log = logging.getLogger(__name__)
 
 # Update callbacks must be defined BEFORE the PropertyGroup classes that use them
 
@@ -13,7 +17,7 @@ def update_tissue_alpha_dynamic(self, context):
     if context.scene.get("_dicom_initializing", False):
         return
     
-    print(f"[Properties] update_tissue_alpha_dynamic called for tissue: {self.tissue_name}, alpha: {self.alpha}")
+    log.debug(f"update_tissue_alpha_dynamic called for tissue: {self.tissue_name}, alpha: {self.alpha}")
     
     # Find the active volume material (could be CT_Volume_Material, MR_Volume_Material, etc.)
     mat = None
@@ -23,10 +27,10 @@ def update_tissue_alpha_dynamic(self, context):
             break
     
     if not mat:
-        print("[Properties] No volume material found")
+        log.debug("No volume material found")
         return
     
-    print(f"[Properties] Found volume material: {mat.name}")
+    log.debug(f"Found volume material: {mat.name}")
 
     # Find the color ramp node
     color_ramp = None
@@ -36,7 +40,7 @@ def update_tissue_alpha_dynamic(self, context):
             break
     
     if not color_ramp:
-        print("[Properties] Color ramp node 'Tissue_Colors' not found")
+        log.debug("Color ramp node 'Tissue_Colors' not found")
         return
     
 
@@ -48,7 +52,7 @@ def update_tissue_alpha_dynamic(self, context):
     
     preset = load_preset(preset_name)
     if not preset:
-        print(f"[Properties] Failed to load preset: {preset_name}")
+        log.warning(f"Failed to load preset: {preset_name}")
         return
     
     # Build a map of tissue_name -> alpha from the collection
@@ -69,7 +73,7 @@ def update_tissue_alpha_dynamic(self, context):
     expected_stops = 2 * len(tissues)
     
     if len(elements) < expected_stops:
-        print(f"[Properties] Color ramp has {len(elements)} stops, expected {expected_stops}")
+        log.warning(f"Color ramp has {len(elements)} stops, expected {expected_stops}")
         return
     
     stop_idx = 0  # Start from first stop
@@ -98,7 +102,7 @@ def update_tissue_alpha_dynamic(self, context):
             )
             stop_idx += 1
     
-    print(f"[Properties] Updated {stop_idx} color ramp stops")
+    log.debug(f"Updated {stop_idx} color ramp stops")
 
 # PropertyGroup classes (defined after update callbacks)
 
@@ -227,6 +231,35 @@ def register_scene_props():
         default=3000.0
     )
     
+    # Denoising properties
+    bpy.types.Scene.denoise_enabled = BoolProperty(
+        name="Denoise Volume",
+        default=False,
+        description="Apply noise reduction to volume data during import"
+    )
+    bpy.types.Scene.denoise_strength = FloatProperty(
+        name="Strength",
+        default=0.1,
+        min=0.01,
+        max=0.5,
+        step=1,
+        precision=2,
+        description="Denoising strength (0.01 = minimal, 0.1 = subtle, 0.5 = maximum)"
+    )
+    bpy.types.Scene.denoise_method = EnumProperty(
+        name="Method",
+        items=[
+            ('GAUSSIAN', "Gaussian (fast)", "Smooth blur - fast and effective"),
+            ('PERCENTILE_25', "Percentile 25% (medium)", "Darkens image slightly - less aggressive than median"),
+            ('PERCENTILE_75', "Percentile 75% (medium)", "Brightens image slightly - less aggressive than median"),
+            ('WIENER', "Wiener (medium)", "Adaptive filter - good for CT noise patterns"),
+            ('MEDIAN', "Median (slow)", "Edge-preserving - removes salt-pepper noise"),
+        ],
+        default='GAUSSIAN',
+        description="Denoising algorithm (2D slice-by-slice with scipy.ndimage)"
+    )
+
+    
 
     
 
@@ -268,7 +301,7 @@ def initialize_tissue_alphas(context, preset_name="ct_standard", silent=False):
     
     preset = load_preset(preset_name)
     if not preset:
-        print(f"[Properties] Failed to load preset {preset_name}")
+        log.warning(f"Failed to load preset {preset_name}")
         return
     
     # Clear existing alphas
@@ -292,7 +325,7 @@ def initialize_tissue_alphas(context, preset_name="ct_standard", silent=False):
     # Store active preset name
     context.scene.dicom_active_material_preset = preset_name
     
-    print(f"[Properties] Initialized {len(preset.tissues)} tissue alphas from preset '{preset_name}'")
+    log.info(f"Initialized {len(preset.tissues)} tissue alphas from preset '{preset_name}'")
 
 def unregister_scene_props():
     """Unregister scene properties"""
@@ -313,6 +346,9 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_volume_hu_max
     del bpy.types.Scene.dicom_active_material_preset
     del bpy.types.Scene.dicom_tissue_alphas
+    del bpy.types.Scene.denoise_enabled
+    del bpy.types.Scene.denoise_strength
+    del bpy.types.Scene.denoise_method
 
 classes = (
     DicomSeriesProperty,
@@ -330,7 +366,7 @@ def register():
     def init_on_startup():
         if bpy.context.scene:
             initialize_tissue_alphas(bpy.context, "ct_standard", silent=True)
-            print("[Properties] Initialized tissue alphas at addon startup")
+            log.info("Initialized tissue alphas at addon startup")
         return None  # Run once and stop
     
     bpy.app.timers.register(init_on_startup, first_interval=0.1)

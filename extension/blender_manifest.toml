@@ -1,6 +1,6 @@
-schema_version = "1.0.0"
+schema_version = "0.0.1"
 id = "DCM2VDB"
-version = "1.0.0"
+version = "0.0.1"
 name = "DICOM to VDB"
 tagline = "just tests"
 maintainer = "Your Name <you@example.com>"

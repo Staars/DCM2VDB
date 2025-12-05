@@ -1,7 +1,10 @@
 """Volume measurement and quantification tools"""
 
 import numpy as np
-from .dicom_io import log
+import logging
+
+# Get logger for this extension
+log = logging.getLogger(__name__)
 
 
 def calculate_tissue_volume(vol_array, hu_min, hu_max, pixel_spacing, slice_thickness):
@@ -33,10 +36,10 @@ def calculate_tissue_volume(vol_array, hu_min, hu_max, pixel_spacing, slice_thic
     # Convert to mL (1 mL = 1000 mm³)
     volume_ml = total_volume_mm3 / 1000.0
     
-    log(f"Tissue volume calculation:")
-    log(f"  HU range: {hu_min} to {hu_max}")
-    log(f"  Voxels in range: {voxel_count:,}")
-    log(f"  Voxel volume: {voxel_volume_mm3:.3f} mm³")
-    log(f"  Total volume: {volume_ml:.2f} mL")
+    log.debug(f"Tissue volume calculation:")
+    log.debug(f"  HU range: {hu_min} to {hu_max}")
+    log.debug(f"  Voxels in range: {voxel_count:,}")
+    log.debug(f"  Voxel volume: {voxel_volume_mm3:.3f} mm³")
+    log.debug(f"  Total volume: {volume_ml:.2f} mL")
     
     return volume_ml

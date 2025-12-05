@@ -2,6 +2,10 @@
 
 import os
 import numpy as np
+import logging
+
+# Get logger for this extension
+log = logging.getLogger(__name__)
 
 try:
     from pydicom import dcmread
@@ -14,10 +18,6 @@ try:
 except ImportError:
     PYDICOM_AVAILABLE = False
     HAS_DICOMDIR = False
-
-def log(msg): 
-    """Print log message"""
-    print(f"[DICOM] {msg}")
 
 def classify_dicom_file(filepath):
     """
@@ -56,7 +56,7 @@ def classify_dicom_file(filepath):
         return 'primary'
         
     except Exception as e:
-        log(f"Failed to classify {filepath}: {e}")
+        log.error(f"Failed to classify {filepath}: {e}")
         return 'invalid'
 
 def gather_dicom_files(root_dir):
@@ -74,7 +74,7 @@ def gather_dicom_files(root_dir):
             if candidates:
                 return list(candidates)
         except Exception as e:
-            log(f"DICOMDIR parsing failed: {e}")
+            log.warning(f"DICOMDIR parsing failed: {e}")
     
     for dirpath, _, files in os.walk(root_dir):
         for f in files:
@@ -134,7 +134,7 @@ def organize_by_series(file_paths):
             )
             series_dict[series_uid]['instance_count'] = len(series_dict[series_uid]['files'])
         except Exception as e:
-            log(f"Failed to read {path}: {e}")
+            log.error(f"Failed to read {path}: {e}")
     
     # Sort files within each series by slice location
     for series in series_dict.values():
@@ -159,14 +159,14 @@ def load_slice(path):
     try:
         ds = dcmread(path, force=True)
     except Exception as e:
-        log(f"Failed to read DICOM file {path}: {e}")
+        log.error(f"Failed to read DICOM file {path}: {e}")
         return None
     
     # Try to access pixel_array (may fail for compressed or incomplete files)
     try:
         pixels = ds.pixel_array.astype(np.float32)
     except Exception as e:
-        log(f"No pixel data in {path}: {e}")
+        log.warning(f"No pixel data in {path}: {e}")
         return None
     
     # Apply rescale slope and intercept to get Hounsfield units (for CT) or real values
@@ -209,11 +209,11 @@ def load_patient_from_folder(root_dir):
     """
     from .patient import Patient, SeriesInfo
     
-    log(f"Loading patient from: {root_dir}")
+    log.info(f"Loading patient from: {root_dir}")
     
     # Gather all DICOM files
     all_files = gather_dicom_files(root_dir)
-    log(f"Found {len(all_files)} potential DICOM files")
+    log.info(f"Found {len(all_files)} potential DICOM files")
     
     # Classify files
     primary_files = []
@@ -232,14 +232,14 @@ def load_patient_from_folder(root_dir):
         else:  # invalid
             invalid_count += 1
     
-    log(f"Classification: {len(primary_files)} primary, {secondary_count} secondary, {non_image_count} non-image, {invalid_count} invalid")
+    log.info(f"Classification: {len(primary_files)} primary, {secondary_count} secondary, {non_image_count} non-image, {invalid_count} invalid")
     
     if not primary_files:
         raise ValueError("No primary DICOM images found")
     
     # Organize primary files by series
     series_list = organize_by_series(primary_files)
-    log(f"Organized into {len(series_list)} primary series")
+    log.info(f"Organized into {len(series_list)} primary series")
     
     # Create Patient object
     patient = Patient()
@@ -260,7 +260,7 @@ def load_patient_from_folder(root_dir):
             patient.study_date = str(getattr(ds, 'StudyDate', ''))
             patient.study_description = str(getattr(ds, 'StudyDescription', ''))
         except Exception as e:
-            log(f"Failed to extract patient metadata: {e}")
+            log.warning(f"Failed to extract patient metadata: {e}")
     
     # Convert series_list to SeriesInfo objects
     for series_dict in series_list:
@@ -283,7 +283,7 @@ def load_patient_from_folder(root_dir):
             image_type = list(getattr(ds, 'ImageType', []))
             
         except Exception as e:
-            log(f"Failed to extract spatial metadata: {e}")
+            log.warning(f"Failed to extract spatial metadata: {e}")
             image_position_patient = (0.0, 0.0, 0.0)
             image_orientation_patient = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
             frame_of_reference_uid = ""
@@ -320,8 +320,8 @@ def load_patient_from_folder(root_dir):
         
         patient.series.append(series_info)
     
-    log(f"Patient loaded: {patient.patient_name} ({patient.patient_id})")
-    log(f"  Study: {patient.study_description} ({patient.study_date})")
-    log(f"  {len(patient.series)} primary series")
+    log.info(f"Patient loaded: {patient.patient_name} ({patient.patient_id})")
+    log.info(f"  Study: {patient.study_description} ({patient.study_date})")
+    log.info(f"  {len(patient.series)} primary series")
     
     return patient

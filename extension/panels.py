@@ -1,10 +1,15 @@
 """UI panel definitions"""
 
 import bpy
+import logging
 from bpy.types import Panel
 from pathlib import Path
 
 import os
+
+# Get logger for this extension
+log = logging.getLogger(__name__)
+
 from .operators import (
     IMPORT_OT_dicom_load_patient,
     IMPORT_OT_dicom_visualize_series,
@@ -66,11 +71,16 @@ class VIEW3D_PT_dicom_patient(Panel):
         if patient.study_date:
             box.label(text=f"Date: {patient.study_date}")
         
-        box.operator(IMPORT_OT_dicom_load_patient.bl_idname, text="Reload", icon='FILE_REFRESH')
+        box.operator(IMPORT_OT_dicom_load_patient.bl_idname, text="Load Patient", icon='FILE_FOLDER')
         
         # Series list (collapsible) - always visible
         layout.separator()
         box = layout.box()
+        
+        # Reload button at the top
+        row = box.row()
+        row.operator("import.dicom_reload_patient", text="Reload", icon='FILE_REFRESH')
+        box.separator()
         
         # Collapsible header
         row = box.row()
@@ -113,7 +123,7 @@ class VIEW3D_PT_dicom_patient(Panel):
                             for icon_id in icon_ids:
                                 icon_row.template_icon(icon_value=icon_id, scale=1.5)
                     except Exception as e:
-                        print(f"[DICOM Panel] Failed to generate preview icons: {e}")
+                        log.error(f"Failed to generate preview icons: {e}")
                     
                     # Preview button (always available)
                     action_row = box.row(align=True)
@@ -134,6 +144,24 @@ class VIEW3D_PT_dicom_patient(Panel):
             modality = "CT"  # default
             if patient.series:
                 modality = patient.series[0].modality or "CT"
+            
+            # Denoising options (before visualization)
+            denoise_box = box.box()
+            denoise_box.label(text="Denoising", icon='SMOOTHCURVE')
+            
+            row = denoise_box.row()
+            row.prop(scn, "denoise_enabled", text="Enable Denoising")
+            
+            if scn.denoise_enabled:
+                row = denoise_box.row()
+                row.prop(scn, "denoise_method", text="")
+                
+                row = denoise_box.row()
+                row.prop(scn, "denoise_strength", slider=True)
+                
+                denoise_box.label(text="Progress shown in console", icon='INFO')
+            
+            box.separator()
             
             # Visualization tool (available)
             row = box.row()

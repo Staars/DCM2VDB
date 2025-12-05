@@ -1,7 +1,9 @@
 """Geometry nodes setup for volume to mesh conversion"""
 
 import bpy
-from .dicom_io import log
+import logging
+log = logging.getLogger(__name__)
+
 
 def create_tissue_mesh_geonodes(vol_obj, tissue_name, threshold_min, threshold_max, material=None):
     """Create a Geometry Nodes modifier to extract mesh at threshold (simplified - no boolean)"""
@@ -13,8 +15,8 @@ def create_tissue_mesh_geonodes(vol_obj, tissue_name, threshold_min, threshold_m
         hu_max = scn.dicom_volume_hu_max
         threshold_normalized = (threshold_min - hu_min) / (hu_max - hu_min)
         
-        log(f"Creating Geometry Nodes for {tissue_name}...")
-        log(f"  HU threshold: {threshold_min} -> normalized: {threshold_normalized:.6f}")
+        log.info(f"Creating Geometry Nodes for {tissue_name}...")
+        log.info(f"  HU threshold: {threshold_min} -> normalized: {threshold_normalized:.6f}")
         
         # Add geometry nodes modifier
         mod = vol_obj.modifiers.new(name=f"{tissue_name}_Mesh", type='NODES')
@@ -67,12 +69,12 @@ def create_tissue_mesh_geonodes(vol_obj, tissue_name, threshold_min, threshold_m
         links.new(vol_to_mesh.outputs['Mesh'], set_material.inputs['Geometry'])
         links.new(set_material.outputs['Geometry'], group_output.inputs[0])
         
-        log(f"Created simple Geometry Nodes: {tissue_name} (threshold: {threshold_min} HU)")
+        log.info(f"Created simple Geometry Nodes: {tissue_name} (threshold: {threshold_min} HU)")
         
         return mod
         
     except Exception as e:
-        log(f"ERROR creating Geometry Nodes for {tissue_name}: {e}")
+        log.info(f"ERROR creating Geometry Nodes for {tissue_name}: {e}")
         import traceback
         traceback.print_exc()
         return None

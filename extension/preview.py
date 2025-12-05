@@ -2,13 +2,17 @@
 
 import bpy
 import numpy as np
+import logging
 from .dicom_io import load_slice
+
+# Get logger for this extension
+log = logging.getLogger(__name__)
 
 def load_and_display_slice(context, filepath, series):
     """Load a DICOM slice into Blender image for preview"""
     slice_data = load_slice(filepath)
     if slice_data is None:
-        print(f"[DICOM Preview] Failed to load slice: {filepath}")
+        log.error(f"Failed to load slice: {filepath}")
         return False
     
     pixels = slice_data["pixels"]
@@ -98,14 +102,14 @@ def generate_series_preview_icons(series, dicom_root_path, preview_collection):
     
     icon_ids = []
     
-    print(f"[DICOM Preview] Generating icons for series: {series.series_description}")
-    print(f"[DICOM Preview] Root path: {dicom_root_path}")
-    print(f"[DICOM Preview] File paths count: {len(series.file_paths)}")
+    log.debug(f"Generating icons for series: {series.series_description}")
+    log.debug(f"Root path: {dicom_root_path}")
+    log.debug(f"File paths count: {len(series.file_paths)}")
     
     # Select 5 evenly distributed slices
     slice_count = len(series.file_paths)
     if slice_count == 0:
-        print("[DICOM Preview] No file paths in series")
+        log.warning("No file paths in series")
         return icon_ids
     
     # Calculate indices for 5 slices
@@ -115,7 +119,7 @@ def generate_series_preview_icons(series, dicom_root_path, preview_collection):
         step = (slice_count - 1) / 4  # Distribute across first to last
         indices = [int(i * step) for i in range(5)]
     
-    print(f"[DICOM Preview] Selected indices: {indices}")
+    log.debug(f"Selected indices: {indices}")
     
     # Generate preview for each selected slice
     for i, idx in enumerate(indices):
@@ -124,12 +128,12 @@ def generate_series_preview_icons(series, dicom_root_path, preview_collection):
             rel_path = series.file_paths[idx]
             abs_path = os.path.join(dicom_root_path, rel_path)
             
-            print(f"[DICOM Preview] Loading slice {i}: {abs_path}")
+            log.debug(f"Loading slice {i}: {abs_path}")
             
             # Load slice
             slice_data = load_slice(abs_path)
             if slice_data is None:
-                print(f"[DICOM Preview] Skipping slice {i}: no pixel data")
+                log.warning(f"Skipping slice {i}: no pixel data")
                 continue
             
             pixels = slice_data["pixels"]
@@ -164,18 +168,18 @@ def generate_series_preview_icons(series, dicom_root_path, preview_collection):
             # Check if key already exists, if so use existing preview
             if icon_key in preview_collection:
                 preview = preview_collection[icon_key]
-                print(f"[DICOM Preview] Using cached icon {i}: icon_id={preview.icon_id}")
+                log.debug(f"Using cached icon {i}: icon_id={preview.icon_id}")
             else:
                 preview = preview_collection.load(icon_key, temp_path, 'IMAGE')
-                print(f"[DICOM Preview] Generated new icon {i}: icon_id={preview.icon_id}")
+                log.debug(f"Generated new icon {i}: icon_id={preview.icon_id}")
             
             icon_ids.append(preview.icon_id)
             
         except Exception as e:
-            print(f"[DICOM Preview] Failed to generate icon {i}: {e}")
+            log.error(f"Failed to generate icon {i}: {e}")
             import traceback
             traceback.print_exc()
             continue
     
-    print(f"[DICOM Preview] Total icons generated: {len(icon_ids)}")
+    log.debug(f"Total icons generated: {len(icon_ids)}")
     return icon_ids

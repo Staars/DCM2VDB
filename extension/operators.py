@@ -2,16 +2,20 @@
 
 import bpy
 import os
+import logging
 from bpy.props import StringProperty, IntProperty
 from bpy.types import Operator
 
-from .dicom_io import PYDICOM_AVAILABLE, gather_dicom_files, organize_by_series, load_slice, log, load_patient_from_folder
+from .dicom_io import PYDICOM_AVAILABLE, gather_dicom_files, organize_by_series, load_slice, load_patient_from_folder
 from .volume import create_volume
 from .preview import load_and_display_slice
-from .patient import Patient
+from .patient import Patient, log
 
 import numpy as np
 import os
+
+# Get logger for this extension
+log = logging.getLogger(__name__)
 
 # Global storage for preview collections
 preview_collections = {}
@@ -62,9 +66,9 @@ class IMPORT_OT_dicom_load_patient(Operator):
                     f"ℹ Ignored {patient.non_image_count} non-image files")
             
             # Log series details
-            log(f"Primary series loaded:")
+            log.debug(f"Primary series loaded:")
             for series in patient.series:
-                log(f"  - {series.series_description} ({series.modality}): {series.slice_count} slices")
+                log.info(f"  - {series.series_description} ({series.modality}): {series.slice_count} slices")
             
             return {'FINISHED'}
             
@@ -76,9 +80,9 @@ class IMPORT_OT_dicom_load_patient(Operator):
     
     def _cleanup_all(self, context):
         """Complete cleanup: remove all DICOM objects, materials, images, and reset properties"""
-        log("=" * 60)
-        log("COMPLETE CLEANUP - Removing all DICOM data")
-        log("=" * 60)
+        log.info("=" * 60)
+        log.info("COMPLETE CLEANUP - Removing all DICOM data")
+        log.info("=" * 60)
         
         # 1. Remove all DICOM objects (modality-aware naming)
         removed_count = 0
@@ -87,9 +91,9 @@ class IMPORT_OT_dicom_load_patient(Operator):
             if any(pattern in obj.name for pattern in ['_Volume_S', '_Volume', '_Bone_S', '_Bone', '_Mesh_S', '_Mesh', 'DEBUG_Pyramid']):
                 obj_name = obj.name
                 bpy.data.objects.remove(obj, do_unlink=True)
-                log(f"Removed object: {obj_name}")
+                log.info(f"Removed object: {obj_name}")
                 removed_count += 1
-        log(f"Removed {removed_count} DICOM objects")
+        log.debug(f"Removed {removed_count} DICOM objects")
         
         # 2. Remove all DICOM materials (modality-aware)
         removed_mat_count = 0
@@ -97,15 +101,15 @@ class IMPORT_OT_dicom_load_patient(Operator):
             if mat.name.endswith("_Volume_Material") or mat.name.endswith("_Bone_Material") or mat.name.endswith("_Mesh_Material"):
                 mat_name = mat.name  # Save name before removing
                 bpy.data.materials.remove(mat)
-                log(f"Removed material: {mat_name}")
+                log.info(f"Removed material: {mat_name}")
                 removed_mat_count += 1
-        log(f"Removed {removed_mat_count} DICOM materials")
+        log.debug(f"Removed {removed_mat_count} DICOM materials")
         
         # 3. Remove preview images
         preview_img = bpy.data.images.get("DICOM_Preview")
         if preview_img:
             bpy.data.images.remove(preview_img)
-            log("Removed preview image")
+            log.debug("Removed preview image")
         
         # 4. Reset all scene properties
         scn = context.scene
@@ -120,7 +124,7 @@ class IMPORT_OT_dicom_load_patient(Operator):
         scn.dicom_series_data = ""
         scn.dicom_active_material_preset = "ct_standard"
         scn.dicom_tissue_alphas.clear()
-        log("Reset all scene properties")
+        log.info("Reset all scene properties")
         
         # 5. Clean up temp files
         import tempfile
@@ -130,12 +134,12 @@ class IMPORT_OT_dicom_load_patient(Operator):
             for filepath in glob.glob(os.path.join(temp_dir, pattern)):
                 try:
                     os.remove(filepath)
-                    log(f"Removed temp file: {os.path.basename(filepath)}")
+                    log.debug(f"Removed temp file: {os.path.basename(filepath)}")
                 except:
                     pass
         
-        log("Cleanup complete - ready for fresh patient load")
-        log("=" * 60)
+        log.debug("Cleanup complete - ready for fresh patient load")
+        log.debug("=" * 60)
     
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
@@ -316,7 +320,7 @@ class IMPORT_OT_dicom_preview_popup(Operator):
                 
                 pcoll.load(f"slice_{i}", temp_path, 'IMAGE')
             except Exception as e:
-                log(f"Failed to create preview {i}: {e}")
+                log.error(f"Failed to create preview {i}: {e}")
         
         preview_collections["main"] = pcoll
         
@@ -450,13 +454,13 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
         view2d = region.view2d
         texture_x, texture_y = view2d.region_to_view(mouse_x, mouse_y)
         
-        print(f"[DICOM Cursor] Mouse region: ({mouse_x}, {mouse_y})")
-        print(f"[DICOM Cursor] Texture coords (0-1): ({texture_x:.4f}, {texture_y:.4f})")
-        print(f"[DICOM Cursor] Image size: ({img_width}, {img_height})")
+        log.debug(f"Mouse region: ({mouse_x}, {mouse_y})")
+        log.debug(f"Texture coords (0-1): ({texture_x:.4f}, {texture_y:.4f})")
+        log.debug(f"Image size: ({img_width}, {img_height})")
         
         # Check if within image bounds (0-1 range)
         if texture_x < 0 or texture_x > 1 or texture_y < 0 or texture_y > 1:
-            print(f"[DICOM Cursor] Click outside image bounds - ignoring")
+            log.debug("Click outside image bounds - ignoring")
             return {'CANCELLED'}
         
         # Convert to pixel coordinates
@@ -467,7 +471,7 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
         pixel_x = max(0, min(pixel_x, img_width - 1))
         pixel_y = max(0, min(pixel_y, img_height - 1))
         
-        print(f"[DICOM Cursor] Pixel coords: ({pixel_x}, {pixel_y})")
+        log.debug(f"Pixel coords: ({pixel_x}, {pixel_y})")
         
         # Get current slice information
         slice_index = context.scene.dicom_preview_slice_index
@@ -505,10 +509,10 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
             orientation = slice_data.get('orientation', [1, 0, 0, 0, 1, 0])  # ImageOrientationPatient
             pixel_spacing = slice_data.get('pixel_spacing', (1.0, 1.0))  # (row, col) spacing in mm
             
-            print(f"[DICOM Cursor] Slice {slice_index + 1}/{len(file_paths)}")
-            print(f"[DICOM Cursor] ImagePositionPatient: {position}")
-            print(f"[DICOM Cursor] ImageOrientationPatient: {orientation}")
-            print(f"[DICOM Cursor] PixelSpacing: {pixel_spacing}")
+            log.debug(f"Slice {slice_index + 1}/{len(file_paths)}")
+            log.debug(f"ImagePositionPatient: {position}")
+            log.debug(f"ImageOrientationPatient: {orientation}")
+            log.debug(f"PixelSpacing: {pixel_spacing}")
             
             # Convert 2D pixel coordinates to 3D patient coordinates
             # DICOM coordinate system:
@@ -522,13 +526,13 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
             row_vec = np.array(orientation[:3])  # Direction along rows (Y in image)
             col_vec = np.array(orientation[3:])  # Direction along columns (X in image)
             
-            print(f"[DICOM Cursor] Row vector: {row_vec}")
-            print(f"[DICOM Cursor] Col vector: {col_vec}")
+            log.debug(f"Row vector: {row_vec}")
+            log.debug(f"Col vector: {col_vec}")
             
             # Image is flipped in preview, so adjust Y coordinate
             pixel_y_flipped = img_height - 1 - pixel_y
             
-            print(f"[DICOM Cursor] Pixel Y flipped: {pixel_y} -> {pixel_y_flipped}")
+            log.debug(f"Pixel Y flipped: {pixel_y} -> {pixel_y_flipped}")
             
             # Calculate 3D position
             # Position = ImagePosition + (col * col_spacing * col_vec) + (row * row_spacing * row_vec)
@@ -536,7 +540,7 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
                      (pixel_x * pixel_spacing[1] * col_vec) + \
                      (pixel_y_flipped * pixel_spacing[0] * row_vec)
             
-            print(f"[DICOM Cursor] 3D position (DICOM): {pos_3d}")
+            log.debug(f"3D position (DICOM): {pos_3d}")
             
             # Find the volume object for THIS series
             # Get series number from the DICOM file
@@ -591,16 +595,16 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
                     pos_3d[2] / 1000.0
                 )
                 
-                print(f"[DICOM Cursor] ===== FINAL COORDINATES =====")
-                print(f"[DICOM Cursor] Image click: pixel ({pixel_x}, {pixel_y}) from bottom")
-                print(f"[DICOM Cursor] Pixel from top: {pixel_y_from_top}")
-                print(f"[DICOM Cursor] Volume location (pivot): {vol_loc}")
-                print(f"[DICOM Cursor] DICOM position: ({dicom_x:.2f}, {dicom_y:.2f})")
-                print(f"[DICOM Cursor] Offset from pivot: ({relative_x:.2f}, {relative_y:.2f}) mm")
-                print(f"[DICOM Cursor] Blender offset: ({offset_x:.4f}, {offset_y:.4f}) m")
-                print(f"[DICOM Cursor] 3D position: {blender_pos}")
+                log.debug("===== FINAL COORDINATES =====")
+                log.debug(f"Image click: pixel ({pixel_x}, {pixel_y}) from bottom")
+                log.debug(f"Pixel from top: {pixel_y_from_top}")
+                log.debug(f"Volume location (pivot): {vol_loc}")
+                log.debug(f"DICOM position: ({dicom_x:.2f}, {dicom_y:.2f})")
+                log.debug(f"Offset from pivot: ({relative_x:.2f}, {relative_y:.2f}) mm")
+                log.debug(f"Blender offset: ({offset_x:.4f}, {offset_y:.4f}) m")
+                log.debug(f"3D position: {blender_pos}")
             else:
-                print(f"[DICOM Cursor] ERROR: No volume object found!")
+                log.error("No volume object found!")
                 return {'CANCELLED'}
             
             # Set 3D cursor
@@ -676,7 +680,7 @@ class IMPORT_OT_dicom_import_series(Operator):
             if slice_data is not None:
                 slices.append(slice_data)
             else:
-                log(f"Skipped slice (no pixel data): {path}")
+                log.warning(f"Skipped slice (no pixel data): {path}")
         
         wm.progress_end()
         
@@ -736,7 +740,7 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             if slice_data is not None:
                 slices.append(slice_data)
             else:
-                log(f"Skipped slice (no pixel data): {path}")
+                log.warning(f"Skipped slice (no pixel data): {path}")
         
         wm.progress_end()
         
@@ -810,10 +814,10 @@ class IMPORT_OT_dicom_visualize_series(Operator):
                 if volume_ml > 0:
                     series.tissue_volumes[tissue_name] = volume_ml
             
-            log(f"Tissue volumes calculated for series {series.series_number}")
+            log.debug(f"Tissue volumes calculated for series {series.series_number}")
             
         except Exception as e:
-            log(f"Failed to calculate volumes: {e}")
+            log.error(f"Failed to calculate volumes: {e}")
 
 class IMPORT_OT_dicom_preview_series(Operator):
     """Preview series in Image Editor (2D slice viewer)"""
@@ -850,7 +854,7 @@ class IMPORT_OT_dicom_preview_series(Operator):
         # Clear old DICOM_Preview image to force fresh load
         if "DICOM_Preview" in bpy.data.images:
             bpy.data.images.remove(bpy.data.images["DICOM_Preview"])
-            log("Cleared old DICOM_Preview image")
+            log.debug("Cleared old DICOM_Preview image")
         
         # Store preview info in scene (for scrolling and slice navigation)
         context.scene.dicom_preview_slice_index = 0
@@ -901,9 +905,9 @@ class IMPORT_OT_dicom_set_tool(Operator):
                 
                 selected_series = [s for s in patient.series if s.is_selected]
                 
-                log(f"Total series: {len(patient.series)}, Selected: {len(selected_series)}")
+                log.info(f"Total series: {len(patient.series)}, Selected: {len(selected_series)}")
                 for s in patient.series:
-                    log(f"  Series {s.series_number}: selected={s.is_selected}, loaded={s.is_loaded}")
+                    log.debug(f"  Series {s.series_number}: selected={s.is_selected}, loaded={s.is_loaded}")
                 
                 if selected_series:
                     self.report({'INFO'}, f"Auto-visualizing {len(selected_series)} selected series...")
@@ -936,7 +940,7 @@ class IMPORT_OT_dicom_set_tool(Operator):
                             # Calculate measurements
                             self._calculate_volumes_for_series(context, series)
                             
-                            log(f"Auto-visualized series {series.series_number}")
+                            log.info(f"Auto-visualized series {series.series_number}")
                     
                     # Save updated patient data
                     context.scene.dicom_patient_data = patient.to_json()
@@ -944,7 +948,7 @@ class IMPORT_OT_dicom_set_tool(Operator):
                 else:
                     self.report({'INFO'}, "All selected series already loaded")
             except Exception as e:
-                log(f"Auto-visualization error: {e}")
+                log.error(f"Auto-visualization error: {e}")
                 import traceback
                 traceback.print_exc()
         
@@ -959,15 +963,15 @@ class IMPORT_OT_dicom_set_tool(Operator):
         for obj in list(bpy.data.objects):
             if any(pattern in obj.name for pattern in ['_Volume_', '_Mesh_', 'DICOM_']):
                 bpy.data.objects.remove(obj, do_unlink=True)
-                log(f"Removed object: {obj.name}")
+                log.debug(f"Removed object: {obj.name}")
         
         # Remove volume materials
         for mat in list(bpy.data.materials):
             if mat.name.endswith('_Volume_Material'):
                 bpy.data.materials.remove(mat)
-                log(f"Removed material: {mat.name}")
+                log.debug(f"Removed material: {mat.name}")
         
-        log("Cleared all DICOM volumes and meshes")
+        log.info("Cleared all DICOM volumes and meshes")
     
     def _calculate_volumes_for_series(self, context, series):
         """Calculate tissue volumes for a series"""
@@ -1001,7 +1005,7 @@ class IMPORT_OT_dicom_set_tool(Operator):
                 if volume_ml > 0:
                     series.tissue_volumes[tissue_name] = volume_ml
         except Exception as e:
-            log(f"Volume calculation error: {e}")
+            log.error(f"Volume calculation error: {e}")
 
 class IMPORT_OT_dicom_toggle_series_selection(Operator):
     """Toggle series selection for processing"""
@@ -1181,10 +1185,64 @@ class IMPORT_OT_dicom_calculate_volume(Operator):
             
         except Exception as e:
             self.report({'ERROR'}, f"Failed to calculate volume: {e}")
-            log(f"ERROR: {e}")
+            log.error(f"ERROR: {e}")
             import traceback
             traceback.print_exc()
             return {'CANCELLED'}
+
+
+class IMPORT_OT_dicom_reload_patient(Operator):
+    """Reload the current patient (clears volumes and reimports with current settings)"""
+    bl_idname = "import.dicom_reload_patient"
+    bl_label = "Reload Patient"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        scn = context.scene
+        
+        if not scn.dicom_patient_data:
+            self.report({'WARNING'}, "No patient loaded")
+            return {'CANCELLED'}
+        
+        try:
+            from .patient import Patient
+            patient = Patient.from_json(scn.dicom_patient_data)
+            
+            # Clear all volumes and meshes
+            log.info("Clearing all volumes and meshes for reload...")
+            for obj in list(bpy.data.objects):
+                if obj.type in {'VOLUME', 'MESH'} and ('_Volume_' in obj.name or '_Bone_' in obj.name or '_Skin_' in obj.name):
+                    bpy.data.objects.remove(obj, do_unlink=True)
+            
+            # Clear materials
+            for mat in list(bpy.data.materials):
+                if '_Material' in mat.name:
+                    bpy.data.materials.remove(mat, do_unlink=True)
+            
+            # Reset all series states
+            for series in patient.series:
+                series.is_loaded = False
+                series.is_visible = False
+                series.tissue_volumes = {}
+            
+            # Reset tool to NONE to force re-visualization
+            scn.dicom_active_tool = 'NONE'
+            
+            # Save updated patient data
+            scn.dicom_patient_data = patient.to_json()
+            
+            self.report({'INFO'}, "Patient cleared. Select Visualization tool to reload with current settings.")
+            log.info("Patient reload complete - ready for re-visualization")
+            
+            return {'FINISHED'}
+            
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to reload: {e}")
+            log.error(f"ERROR: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'CANCELLED'}
+
 
 classes = (
     IMPORT_OT_dicom_load_patient,
@@ -1194,6 +1252,7 @@ classes = (
     IMPORT_OT_dicom_toggle_series_selection,
     IMPORT_OT_dicom_toggle_display_mode,
     IMPORT_OT_dicom_calculate_volume,
+    IMPORT_OT_dicom_reload_patient,
     IMPORT_OT_dicom_scan,
     IMPORT_OT_dicom_preview,
     IMPORT_OT_dicom_preview_popup,

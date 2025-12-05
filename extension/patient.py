@@ -7,8 +7,12 @@ in .blend files.
 """
 
 import json
+import logging
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field, asdict
+
+# Get logger for this extension
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -169,8 +173,3 @@ class Patient:
     def get_visible_series(self) -> List[SeriesInfo]:
         """Get all series that are currently visible."""
         return [s for s in self.series if s.is_visible]
-
-
-def log(msg):
-    """Print log message."""
-    print(f"[DICOM Patient] {msg}")
