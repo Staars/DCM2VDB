@@ -1,0 +1,32 @@
+name: Build Blender Extension
+
+on:
+  push:
+    tags:
+      - 'v*'   # run on version tags like v1.0.0
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create zip archive of extension
+        run: |
+          cd extension
+          zip -r ../dcm2dvb.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-extension
+          path: dcm2dvb.zip
+
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dcm2dvb.zip
