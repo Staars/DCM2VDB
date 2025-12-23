@@ -43,4 +43,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ./builds/*.zip
+          body: |
+            ## DICOM to VDB Extension - Platform-Specific Builds
+            
+            Download the appropriate version for your system:
+            - **Windows**: `DCM2VDB-*-windows-x64.zip`
+            - **macOS (Apple Silicon)**: `DCM2VDB-*-macos-arm64.zip`
+            - **Linux**: `DCM2VDB-*-linux-x64.zip`
+            
+            ### Installation
+            1. Download the zip file for your platform
+            2. In Blender, go to Edit > Preferences > Extensions
+            3. Click the dropdown menu (⌄) and select "Install from Disk"
+            4. Select the downloaded zip file
+            
+            Each package is under 100MB and includes all necessary dependencies for that platform.
+          draft: false
+          prerelease: false
 
