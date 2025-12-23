@@ -24,6 +24,7 @@ jobs:
 
       - name: Build extension with platform splits
         run: |
+          mkdir -p ./builds
           blender-5.0.0-linux-x64/blender --background --command extension build --split-platforms --source-dir extension --output-dir ./builds
 
       - name: List generated builds
