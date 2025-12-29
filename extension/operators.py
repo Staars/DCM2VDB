@@ -853,10 +853,20 @@ class IMPORT_OT_dicom_preview_series(Operator):
         
         # Clear old DICOM_Preview image to force fresh load
         if "DICOM_Preview" in bpy.data.images:
-            bpy.data.images.remove(bpy.data.images["DICOM_Preview"])
+            old_img = bpy.data.images["DICOM_Preview"]
+            # First, clear it from all Image Editors
+            for window in context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type == 'IMAGE_EDITOR':
+                        for space in area.spaces:
+                            if space.type == 'IMAGE_EDITOR' and space.image == old_img:
+                                space.image = None
+            # Now remove the image
+            bpy.data.images.remove(old_img)
             log.debug("Cleared old DICOM_Preview image")
         
         # Store preview info in scene (for scrolling and slice navigation)
+        # IMPORTANT: Reset to slice 0 for new series
         context.scene.dicom_preview_slice_index = 0
         context.scene.dicom_preview_slice_count = len(file_paths)
         context.scene.dicom_preview_series_index = 0  # Always use index 0 for single series
@@ -872,7 +882,32 @@ class IMPORT_OT_dicom_preview_series(Operator):
         # Load first slice
         try:
             load_and_display_slice(context, file_paths[0], series_list[0])
-            self.report({'INFO'}, f"Preview ready: {series.series_description} ({len(file_paths)} slices)")
+            
+            # Automatically set DICOM_Preview as active in any open Image Editor
+            # and force a complete refresh
+            dicom_img = bpy.data.images.get("DICOM_Preview")
+            if dicom_img:
+                image_editor_found = False
+                for window in context.window_manager.windows:
+                    for area in window.screen.areas:
+                        if area.type == 'IMAGE_EDITOR':
+                            for space in area.spaces:
+                                if space.type == 'IMAGE_EDITOR':
+                                    # Force refresh by clearing and reassigning
+                                    space.image = None
+                                    space.image = dicom_img
+                                    image_editor_found = True
+                            # Tag for redraw
+                            area.tag_redraw()
+                
+                if image_editor_found:
+                    self.report({'INFO'}, f"Preview loaded in Image Editor: {series.series_description} ({len(file_paths)} slices)")
+                else:
+                    self.report({'INFO'}, f"Preview ready: {series.series_description} ({len(file_paths)} slices)")
+                    self.report({'INFO'}, "Open an Image Editor to view. Use mouse wheel to scroll.")
+            else:
+                self.report({'INFO'}, f"Preview ready: {series.series_description} ({len(file_paths)} slices)")
+            
             self.report({'INFO'}, "Double-click on image to set 3D cursor. Use mouse wheel to scroll.")
             return {'FINISHED'}
         except Exception as e:
