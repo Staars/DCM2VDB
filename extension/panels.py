@@ -235,6 +235,51 @@ class VIEW3D_PT_dicom_visualization(Panel):
             else:
                 box.label(text="No tissue data loaded", icon='INFO')
             
+            # Tissue Volumes section (collapsible, at bottom of opacity box)
+            box.separator()
+            row = box.row()
+            row.prop(scn, "dicom_show_tissue_volumes",
+                icon="TRIA_DOWN" if scn.dicom_show_tissue_volumes else "TRIA_RIGHT",
+                icon_only=True, emboss=False
+            )
+            row.label(text="Tissue Volumes", icon='GRAPH')
+            
+            if scn.dicom_show_tissue_volumes:
+                # Show tissue volumes for all loaded series
+                groups = patient.get_series_by_frame_of_reference()
+                has_volumes = False
+                
+                for frame_uid, series_list in groups.items():
+                    selected_series = [s for s in series_list if s.is_selected]
+                    
+                    for series in selected_series:
+                        if series.is_loaded and series.tissue_volumes:
+                            has_volumes = True
+                            col = box.column(align=True)
+                            col.separator()
+                            col.label(text=f"Series {series.series_number}:", icon='RENDERLAYERS')
+                            
+                            # Load preset to get tissue labels
+                            from .material_presets import load_preset
+                            preset = load_preset(scn.dicom_active_material_preset)
+                            
+                            # Create tissue name -> label mapping
+                            tissue_labels = {}
+                            if preset:
+                                for tissue in preset.tissues:
+                                    tissue_labels[tissue['name']] = tissue.get('label', tissue['name'].title())
+                            
+                            # Display all measured tissue volumes
+                            for tissue_name, volume_ml in series.tissue_volumes.items():
+                                if volume_ml > 0:
+                                    label = tissue_labels.get(tissue_name, tissue_name.title())
+                                    row = col.row()
+                                    row.label(text=f"  {label}: {volume_ml:.2f} mL")
+                
+                if not has_volumes:
+                    col = box.column(align=True)
+                    col.label(text="No measurements available", icon='INFO')
+            
             layout.separator()
         
         # Tool-specific actions for each series (ONLY SELECTED SERIES)
@@ -254,29 +299,6 @@ class VIEW3D_PT_dicom_visualization(Panel):
                 # Series header
                 row = box.row(align=True)
                 row.label(text=f"Series {series.series_number}", icon='RENDERLAYERS')
-                
-                # Show measurements if loaded (dynamic from preset)
-                if series.is_loaded and series.tissue_volumes:
-                    col = box.column(align=True)
-                    col.separator()
-                    col.label(text="Tissue Volumes:", icon='GRAPH')
-                    
-                    # Load preset to get tissue labels
-                    from .material_presets import load_preset
-                    preset = load_preset(scn.dicom_active_material_preset)
-                    
-                    # Create tissue name -> label mapping
-                    tissue_labels = {}
-                    if preset:
-                        for tissue in preset.tissues:
-                            tissue_labels[tissue['name']] = tissue.get('label', tissue['name'].title())
-                    
-                    # Display all measured tissue volumes
-                    for tissue_name, volume_ml in series.tissue_volumes.items():
-                        if volume_ml > 0:
-                            label = tissue_labels.get(tissue_name, tissue_name.title())
-                            row = col.row()
-                            row.label(text=f"  {label}: {volume_ml:.2f} mL")
 
 class IMAGE_EDITOR_PT_dicom_controls(Panel):
     """DICOM controls panel in Image Editor"""

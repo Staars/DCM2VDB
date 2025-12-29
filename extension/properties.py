@@ -164,6 +164,11 @@ def register_scene_props():
         default=False,
         description="Expand/collapse spatial information in preview"
     )
+    bpy.types.Scene.dicom_show_tissue_volumes = BoolProperty(
+        name="Show Tissue Volumes",
+        default=False,
+        description="Expand/collapse tissue volume measurements"
+    )
     
     # Patient data (JSON serialized)
     bpy.types.Scene.dicom_patient_data = StringProperty(
@@ -337,6 +342,7 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_preview_slice_count
     del bpy.types.Scene.dicom_show_series_list
     del bpy.types.Scene.dicom_show_spatial_info
+    del bpy.types.Scene.dicom_show_tissue_volumes
     del bpy.types.Scene.dicom_patient_data
     del bpy.types.Scene.dicom_active_tool
     del bpy.types.Scene.dicom_volume_data_path
