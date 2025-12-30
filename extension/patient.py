@@ -7,12 +7,12 @@ in .blend files.
 """
 
 import json
-import logging
+from .utils import SimpleLogger
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 
 @dataclass

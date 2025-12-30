@@ -2,9 +2,9 @@
 
 import json
 import os
-import logging
+from .utils import SimpleLogger
 
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 
 class MaterialPreset:

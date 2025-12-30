@@ -9,23 +9,10 @@ from .dicom_io import PYDICOM_AVAILABLE, gather_dicom_files, organize_by_series,
 from .volume import create_volume
 from .preview import load_and_display_slice
 from .patient import Patient
+from .utils import SimpleLogger
 
 import numpy as np
 import os
-
-# Simple logging wrapper since Blender's logging API isn't fully implemented yet
-class SimpleLogger:
-    def info(self, msg):
-        print(f"INFO: {msg}")
-    
-    def debug(self, msg):
-        print(f"DEBUG: {msg}")
-    
-    def warning(self, msg):
-        print(f"WARNING: {msg}")
-    
-    def error(self, msg):
-        print(f"ERROR: {msg}")
 
 log = SimpleLogger()
 

@@ -2,11 +2,11 @@
 
 import bpy
 import numpy as np
-import logging
+from .utils import SimpleLogger
 from .dicom_io import load_slice
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 def load_and_display_slice(context, filepath, series):
     """Load a DICOM slice into Blender image for preview"""

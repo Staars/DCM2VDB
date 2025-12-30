@@ -1,14 +1,14 @@
 """UI panel definitions"""
 
 import bpy
-import logging
+from .utils import SimpleLogger
 from bpy.types import Panel
 from pathlib import Path
 
 import os
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 from .operators import (
     IMPORT_OT_dicom_load_patient,

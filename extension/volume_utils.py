@@ -4,10 +4,10 @@ import os
 import glob
 import tempfile
 import numpy as np
-import logging
+from .utils import SimpleLogger
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 def clean_old_volumes(name_prefix="CT_Volume"):
     """Remove old volume objects, materials, and volume data"""

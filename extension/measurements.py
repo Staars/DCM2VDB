@@ -1,10 +1,10 @@
 """Volume measurement and quantification tools"""
 
 import numpy as np
-import logging
+from .utils import SimpleLogger
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 
 def calculate_tissue_volume(vol_array, hu_min, hu_max, pixel_spacing, slice_thickness):

@@ -2,10 +2,10 @@
 
 import os
 import numpy as np
-import logging
+from .utils import SimpleLogger
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 try:
     from pydicom import dcmread

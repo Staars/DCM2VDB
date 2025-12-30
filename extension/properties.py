@@ -1,12 +1,12 @@
 """Property definitions for DICOM importer"""
 
 import bpy
-import logging
+from .utils import SimpleLogger
 from bpy.props import StringProperty, FloatProperty, IntProperty, CollectionProperty, BoolProperty, EnumProperty
 from bpy.types import PropertyGroup
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 # Update callbacks must be defined BEFORE the PropertyGroup classes that use them
 

@@ -1,13 +1,13 @@
 """Material creation for volume and mesh visualization"""
 
 import bpy
-import logging
+from .utils import SimpleLogger
 from .constants import *
 from .volume_utils import hu_to_normalized
 from .material_presets import load_preset
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard", modality="CT", series_description=""):
     """Create or reuse shared volume material from preset

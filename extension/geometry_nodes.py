@@ -1,8 +1,9 @@
 """Geometry nodes setup for volume to mesh conversion"""
 
 import bpy
-import logging
-log = logging.getLogger(__name__)
+from .utils import SimpleLogger
+
+log = SimpleLogger()
 
 
 def create_tissue_mesh_geonodes(vol_obj, tissue_name, threshold_min, threshold_max, material=None):

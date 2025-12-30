@@ -13,10 +13,10 @@ import bpy
 import sys
 import os
 import subprocess
-import logging
+from .utils import SimpleLogger
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 # Install bundled wheels if packages are not available
 def ensure_package(package_name, import_name=None):

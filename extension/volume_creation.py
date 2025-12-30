@@ -6,7 +6,7 @@ import tempfile
 import numpy as np
 import uuid
 import math
-import logging
+from .utils import SimpleLogger
 
 from .constants import *
 from .volume_utils import clean_old_volumes, save_debug_slice
@@ -14,7 +14,7 @@ from .materials import create_volume_material
 from .geometry_nodes import create_tissue_mesh_geonodes
 
 # Get logger for this extension
-log = logging.getLogger(__name__)
+log = SimpleLogger()
 
 def create_volume(slices, series_number=1):
     """Create a volume object from DICOM slices with proper Hounsfield units.
