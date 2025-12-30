@@ -244,24 +244,25 @@ def register_scene_props():
     )
     bpy.types.Scene.denoise_strength = FloatProperty(
         name="Strength",
-        default=0.35,
+        default=0.10,
         min=0.01,
-        max=0.5,
+        max=1.0,
         step=1,
         precision=2,
-        description="Denoising strength (0.01 = minimal, 0.1 = subtle, 0.5 = maximum)"
+        description="Denoising strength (0.01 = minimal, 0.1 = subtle, 0.5 = strong, 1.0 = maximum)"
     )
     bpy.types.Scene.denoise_method = EnumProperty(
         name="Method",
         items=[
-            ('GAUSSIAN', "Gaussian (fast)", "Smooth blur - fast and effective"),
-            ('PERCENTILE_25', "Percentile 25% (medium)", "Darkens image slightly - less aggressive than median"),
-            ('PERCENTILE_75', "Percentile 75% (medium)", "Brightens image slightly - less aggressive than median"),
-            ('WIENER', "Wiener (medium)", "Adaptive filter - good for CT noise patterns"),
+            ('PERCENTILE_25', "Percentile 25% (recommended)", "Darkens image slightly - good for CT noise"),
+            ('WIENER', "Wiener (strong)", "Adaptive filter - good for CT noise patterns"),
+            ('GAUSSIAN_3D', "Gaussian 3D", "3D Gaussian filter - smooth and edge-preserving, processes entire volume"),
+            ('GAUSSIAN', "Gaussian 2D", "2D Gaussian blur - fast slice-by-slice processing"),
+            ('PERCENTILE_75', "Percentile 75%", "Brightens image slightly"),
             ('MEDIAN', "Median (slow)", "Edge-preserving - removes salt-pepper noise"),
         ],
-        default='GAUSSIAN',
-        description="Denoising algorithm (2D slice-by-slice with scipy.ndimage)"
+        default='PERCENTILE_25',
+        description="Denoising algorithm"
     )
     
     # Volume centering properties

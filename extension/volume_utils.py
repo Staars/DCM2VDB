@@ -104,12 +104,13 @@ def denoise_slice_scipy(slice_array, method='GAUSSIAN', strength=1.0):
         # Wiener filter - adaptive noise reduction
         try:
             from scipy.signal import wiener
-            # Map strength to window size: 0.01-0.5 -> 3-11 pixels
-            mysize = max(3, int(strength * 20 + 1))
+            # Map strength to window size with doubled range: 0.01-1.0 -> 3-21 pixels
+            # This allows stronger denoising than before
+            mysize = max(3, int(strength * 40 + 1))
             if mysize % 2 == 0:
                 mysize += 1
             result = wiener(slice_array, mysize=mysize)
-            log.info(f"  Wiener filter with {mysize}x{mysize} window")
+            log.info(f"  Wiener filter with {mysize}x{mysize} window (strength={strength:.2f})")
         except ImportError:
             log.info("  WARNING: scipy.signal not available, falling back to Gaussian")
             result = ndimage.gaussian_filter(slice_array, sigma=strength)

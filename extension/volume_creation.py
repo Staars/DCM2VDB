@@ -54,35 +54,41 @@ def create_volume(slices, series_number=1):
     if len(slices) < MIN_SLICES_REQUIRED:
         raise ValueError(f"Need at least {MIN_SLICES_REQUIRED} slices with matching dimensions")
     
-    # Apply denoising to each slice if enabled (FAST - 2D slice-by-slice with scipy)
+    # Stack slices into 3D volume first
+    vol = np.stack([s["pixels"] for s in slices])
+    depth, height, width = vol.shape
+    
+    # Apply denoising if enabled
     if bpy.context.scene.denoise_enabled:
         log.info("=" * 60)
         log.info(f"DENOISING ENABLED: {bpy.context.scene.denoise_method}, Strength: {bpy.context.scene.denoise_strength}")
-        log.info(f"Processing {len(slices)} slices for Series {series_number}...")
+        log.info(f"Processing volume for Series {series_number} ({depth}x{height}x{width})...")
         
-        from .volume_utils import denoise_slice_scipy
+        method = bpy.context.scene.denoise_method
+        strength = bpy.context.scene.denoise_strength
         
-        denoised_slices = []
-        for i, slice_data in enumerate(slices):
-            denoised_pixels = denoise_slice_scipy(
-                slice_data["pixels"],
-                method=bpy.context.scene.denoise_method,
-                strength=bpy.context.scene.denoise_strength
-            )
-            slice_data["pixels"] = denoised_pixels
-            denoised_slices.append(slice_data)
+        if method == 'GAUSSIAN_3D':
+            # 3D Gaussian filter - processes entire volume at once
+            from scipy import ndimage
+            log.info("Applying 3D Gaussian filter...")
+            vol = ndimage.gaussian_filter(vol, sigma=strength)
+            log.info("3D Gaussian filter complete!")
+        else:
+            # 2D slice-by-slice filtering (existing methods)
+            from .volume_utils import denoise_slice_scipy
             
-            # Log progress every 10%
-            if (i + 1) % max(1, len(slices) // 10) == 0:
-                progress = (i + 1) / len(slices)
-                log.info(f"  Series {series_number} denoising: {progress*100:.0f}% ({i+1}/{len(slices)} slices)")
+            log.info(f"Applying 2D slice-by-slice filtering ({method})...")
+            for i in range(depth):
+                vol[i] = denoise_slice_scipy(vol[i], method=method, strength=strength)
+                
+                # Log progress every 10%
+                if (i + 1) % max(1, depth // 10) == 0:
+                    progress = (i + 1) / depth
+                    log.info(f"  Series {series_number} denoising: {progress*100:.0f}% ({i+1}/{depth} slices)")
+            
+            log.info(f"2D slice-by-slice filtering complete!")
         
-        slices = denoised_slices
-        log.info(f"Series {series_number} denoising complete!")
         log.info("=" * 60)
-     
-    vol = np.stack([s["pixels"] for s in slices])
-    depth, height, width = vol.shape
     
     # PixelSpacing is [row spacing, column spacing] = [Y spacing, X spacing]
     pixel_spacing = slices[0]["pixel_spacing"]
