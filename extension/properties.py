@@ -239,12 +239,12 @@ def register_scene_props():
     # Denoising properties
     bpy.types.Scene.denoise_enabled = BoolProperty(
         name="Denoise Volume",
-        default=False,
+        default=True,
         description="Apply noise reduction to volume data during import"
     )
     bpy.types.Scene.denoise_strength = FloatProperty(
         name="Strength",
-        default=0.1,
+        default=0.35,
         min=0.01,
         max=0.5,
         step=1,
@@ -267,7 +267,7 @@ def register_scene_props():
     # Volume centering properties
     bpy.types.Scene.center_volume_at_origin = BoolProperty(
         name="Center Volume at Origin",
-        default=False,
+        default=True,
         description="Center all volumes at world origin (0,0,0) based on the lowest Z-axis series"
     )
     bpy.types.Scene.dicom_centering_offset = StringProperty(

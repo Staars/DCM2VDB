@@ -1256,16 +1256,7 @@ class IMPORT_OT_dicom_set_tool(Operator):
             log.info(f"  {obj.type} {obj.name}: {old_location} -> {obj.location}")
         
         # Create debug Empty at origin (for verification)
-        old_empty = bpy.data.objects.get("DICOM_Center_Debug")
-        if old_empty:
-            bpy.data.objects.remove(old_empty, do_unlink=True)
-        
-        empty = bpy.data.objects.new("DICOM_Center_Debug", None)
-        empty.empty_display_type = 'SPHERE'
-        empty.empty_display_size = 0.05  # 5cm sphere
-        empty.location = (0, 0, 0)
-        bpy.context.collection.objects.link(empty)
-        log.info("Created debug Empty at origin (0, 0, 0)")
+        # Removed - no longer needed for production use
         
         log.info("Transform applied successfully!")
         log.info("=" * 60)
