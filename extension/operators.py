@@ -2,20 +2,32 @@
 
 import bpy
 import os
-import logging
 from bpy.props import StringProperty, IntProperty
 from bpy.types import Operator
 
 from .dicom_io import PYDICOM_AVAILABLE, gather_dicom_files, organize_by_series, load_slice, load_patient_from_folder
 from .volume import create_volume
 from .preview import load_and_display_slice
-from .patient import Patient, log
+from .patient import Patient
 
 import numpy as np
 import os
 
-# Get logger for this extension
-log = logging.getLogger(__name__)
+# Simple logging wrapper since Blender's logging API isn't fully implemented yet
+class SimpleLogger:
+    def info(self, msg):
+        print(f"INFO: {msg}")
+    
+    def debug(self, msg):
+        print(f"DEBUG: {msg}")
+    
+    def warning(self, msg):
+        print(f"WARNING: {msg}")
+    
+    def error(self, msg):
+        print(f"ERROR: {msg}")
+
+log = SimpleLogger()
 
 # Global storage for preview collections
 preview_collections = {}
@@ -602,10 +614,35 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
                 log.debug(f"DICOM position: ({dicom_x:.2f}, {dicom_y:.2f})")
                 log.debug(f"Offset from pivot: ({relative_x:.2f}, {relative_y:.2f}) mm")
                 log.debug(f"Blender offset: ({offset_x:.4f}, {offset_y:.4f}) m")
-                log.debug(f"3D position: {blender_pos}")
+                log.debug(f"3D position (before centering): {blender_pos}")
             else:
                 log.error("No volume object found!")
                 return {'CANCELLED'}
+            
+            # Apply centering offset ONLY to Z if volumes were centered at origin
+            # X and Y are already correct because they're calculated from vol_loc which is already centered
+            # Z needs adjustment because it's calculated from DICOM position directly
+            if context.scene.dicom_centering_offset:
+                import json
+                try:
+                    offset_data = json.loads(context.scene.dicom_centering_offset)
+                    centering_offset_z = offset_data['z']
+                    
+                    log.debug("=" * 60)
+                    log.debug("APPLYING CENTERING OFFSET TO CURSOR (Z only)")
+                    log.debug(f"Centering offset Z: {centering_offset_z}")
+                    
+                    # Apply offset only to Z
+                    blender_pos = (
+                        blender_pos[0],  # X unchanged
+                        blender_pos[1],  # Y unchanged
+                        blender_pos[2] - centering_offset_z  # Z adjusted
+                    )
+                    
+                    log.debug(f"3D position (after centering): {blender_pos}")
+                    log.debug("=" * 60)
+                except Exception as e:
+                    log.error(f"Failed to apply centering offset: {e}")
             
             # Set 3D cursor
             context.scene.cursor.location = blender_pos
@@ -925,6 +962,9 @@ class IMPORT_OT_dicom_set_tool(Operator):
     def execute(self, context):
         context.scene.dicom_active_tool = self.tool
         
+        self.report({'INFO'}, f"Setting tool to: {self.tool}")
+        self.report({'INFO'}, f"Center at origin: {context.scene.center_volume_at_origin}")
+        
         # If switching to VISUALIZATION tool, auto-visualize all selected series
         if self.tool == 'VISUALIZATION' and context.scene.dicom_patient_data:
             try:
@@ -979,8 +1019,23 @@ class IMPORT_OT_dicom_set_tool(Operator):
                     
                     # Save updated patient data
                     context.scene.dicom_patient_data = patient.to_json()
+                    
+                    # Calculate and visualize centering transform if enabled
+                    if context.scene.center_volume_at_origin:
+                        log.info("Center at origin is ENABLED - calling centering calculation")
+                        self._calculate_centering_transform(context, patient)
+                    else:
+                        log.info("Center at origin is DISABLED")
+                    
                     self.report({'INFO'}, f"Visualized {len(selected_series)} series")
                 else:
+                    log.info("No selected series to visualize (already loaded)")
+                    
+                    # Still calculate centering if enabled, even if volumes already exist
+                    if context.scene.center_volume_at_origin:
+                        log.info("Center at origin is ENABLED - calling centering calculation for existing volumes")
+                        self._calculate_centering_transform(context, patient)
+                    
                     self.report({'INFO'}, "All selected series already loaded")
             except Exception as e:
                 log.error(f"Auto-visualization error: {e}")
@@ -997,14 +1052,16 @@ class IMPORT_OT_dicom_set_tool(Operator):
         # Remove all objects with DICOM naming patterns
         for obj in list(bpy.data.objects):
             if any(pattern in obj.name for pattern in ['_Volume_', '_Mesh_', 'DICOM_']):
+                obj_name = obj.name  # Save name before removing
                 bpy.data.objects.remove(obj, do_unlink=True)
-                log.debug(f"Removed object: {obj.name}")
+                log.debug(f"Removed object: {obj_name}")
         
         # Remove volume materials
         for mat in list(bpy.data.materials):
             if mat.name.endswith('_Volume_Material'):
+                mat_name = mat.name  # Save name before removing
                 bpy.data.materials.remove(mat)
-                log.debug(f"Removed material: {mat.name}")
+                log.debug(f"Removed material: {mat_name}")
         
         log.info("Cleared all DICOM volumes and meshes")
     
@@ -1041,6 +1098,177 @@ class IMPORT_OT_dicom_set_tool(Operator):
                     series.tissue_volumes[tissue_name] = volume_ml
         except Exception as e:
             log.error(f"Volume calculation error: {e}")
+    
+    def _calculate_centering_transform(self, context, patient):
+        """Calculate the transform needed to center volumes at origin and create debug Empty"""
+        import bpy
+        import mathutils
+        
+        log.info("=" * 60)
+        log.info("CALCULATING CENTERING TRANSFORM")
+        log.info("=" * 60)
+        
+        # Step 1: Find all volume objects
+        volume_objects = []
+        for series_uid, vol_name in patient.volume_objects.items():
+            vol_obj = bpy.data.objects.get(vol_name)
+            if vol_obj and vol_obj.type == 'VOLUME':
+                volume_objects.append(vol_obj)
+                log.info(f"Found volume: {vol_obj.name} at location {vol_obj.location}")
+        
+        if not volume_objects:
+            log.warning("No volume objects found for centering")
+            return
+        
+        # Step 2: Find the volume with the lowest Z position
+        lowest_vol = min(volume_objects, key=lambda v: v.location.z)
+        lowest_z = lowest_vol.location.z
+        
+        log.info("=" * 60)
+        log.info("LOWEST VOLUME DETAILS:")
+        log.info(f"  Name: {lowest_vol.name}")
+        log.info(f"  Location (world): {lowest_vol.location}")
+        log.info(f"  Dimensions (world): {lowest_vol.dimensions}")
+        log.info(f"  Rotation (euler): {lowest_vol.rotation_euler}")
+        log.info(f"  Scale: {lowest_vol.scale}")
+        log.info(f"  Lowest Z: {lowest_z:.4f} m")
+        
+        # IMPORTANT: Volume objects in Blender have a quirk where matrix_world is identity
+        # We need to manually calculate the world-space bounding box from location + rotation + dimensions
+        
+        import mathutils
+        
+        # Get volume properties
+        loc = lowest_vol.location
+        rot = lowest_vol.rotation_euler
+        dims = lowest_vol.dimensions
+        
+        # Create transformation matrix manually
+        mat_loc = mathutils.Matrix.Translation(loc)
+        mat_rot = rot.to_matrix().to_4x4()
+        mat_transform = mat_loc @ mat_rot
+        
+        log.info(f"  Manual transformation matrix:")
+        for row in mat_transform:
+            log.info(f"    {row}")
+        
+        # Get local bounding box corners (8 corners of a box from 0 to dimensions)
+        # Volume bounding box in local space goes from (0,0,0) to (dim_x, dim_y, dim_z)
+        local_corners = [
+            mathutils.Vector((0, 0, 0)),
+            mathutils.Vector((dims.x, 0, 0)),
+            mathutils.Vector((0, dims.y, 0)),
+            mathutils.Vector((dims.x, dims.y, 0)),
+            mathutils.Vector((0, 0, dims.z)),
+            mathutils.Vector((dims.x, 0, dims.z)),
+            mathutils.Vector((0, dims.y, dims.z)),
+            mathutils.Vector((dims.x, dims.y, dims.z)),
+        ]
+        
+        # Transform to world space
+        bbox_corners_world = [mat_transform @ corner for corner in local_corners]
+        
+        log.info(f"  Bounding box corners (world space after manual transformation):")
+        for i, corner in enumerate(bbox_corners_world):
+            log.info(f"    Corner {i}: ({corner.x:.4f}, {corner.y:.4f}, {corner.z:.4f})")
+        
+        # Find min/max of bounding box in world space
+        bbox_min_x = min(c.x for c in bbox_corners_world)
+        bbox_max_x = max(c.x for c in bbox_corners_world)
+        bbox_min_y = min(c.y for c in bbox_corners_world)
+        bbox_max_y = max(c.y for c in bbox_corners_world)
+        bbox_min_z = min(c.z for c in bbox_corners_world)
+        bbox_max_z = max(c.z for c in bbox_corners_world)
+        
+        log.info(f"  Bounding box X range: {bbox_min_x:.4f} to {bbox_max_x:.4f} (center: {(bbox_min_x + bbox_max_x)/2:.4f})")
+        log.info(f"  Bounding box Y range: {bbox_min_y:.4f} to {bbox_max_y:.4f} (center: {(bbox_min_y + bbox_max_y)/2:.4f})")
+        log.info(f"  Bounding box Z range: {bbox_min_z:.4f} to {bbox_max_z:.4f} (center: {(bbox_min_z + bbox_max_z)/2:.4f})")
+        log.info(f"  Volume location Z: {lowest_vol.location.z:.4f}")
+        log.info(f"  Difference (location.z - bbox_min_z): {lowest_vol.location.z - bbox_min_z:.4f}")
+        log.info("=" * 60)
+        
+        # Step 3: Calculate the center point of the lowest plane using bounding box
+        # The bounding box is already in world space, so just use it directly
+        
+        center_point = (
+            (bbox_min_x + bbox_max_x) / 2.0,  # X center from bbox
+            (bbox_min_y + bbox_max_y) / 2.0,  # Y center from bbox
+            bbox_min_z                         # Z at lowest plane
+        )
+        
+        log.info("=" * 60)
+        log.info("CALCULATED CENTER POINT:")
+        log.info(f"  Center point (from bbox): ({center_point[0]:.4f}, {center_point[1]:.4f}, {center_point[2]:.4f})")
+        log.info("=" * 60)
+        
+        log.info(f"Calculated center point of lowest plane: {center_point}")
+        
+        # Step 4: Calculate the transform offset (center_point -> origin)
+        transform_offset = (
+            center_point[0],  # X offset to move center to 0
+            center_point[1],  # Y offset to move center to 0
+            center_point[2]   # Z offset to move center to 0
+        )
+        
+        log.info(f"Transform offset to center at origin: {transform_offset}")
+        
+        # Step 5: Store the transform offset in scene property for later use (cursor positioning, etc.)
+        import json
+        context.scene.dicom_centering_offset = json.dumps({
+            'x': transform_offset[0],
+            'y': transform_offset[1],
+            'z': transform_offset[2]
+        })
+        
+        log.info("Stored centering offset in scene property")
+        
+        # Step 6: Apply the transform to ALL volumes and meshes
+        log.info("=" * 60)
+        log.info("APPLYING TRANSFORM TO VOLUMES AND MESHES")
+        log.info("=" * 60)
+        
+        # Find all mesh objects (tissue meshes - VOLUME type objects with geometry nodes)
+        mesh_objects = []
+        for obj in bpy.data.objects:
+            if obj.type == 'VOLUME':
+                # Check if it's a tissue mesh (has modality prefix, tissue name, and series number)
+                # Examples: CT_Bone_S1, MR_Soft_Tissue_S2, etc.
+                has_modality = any(pattern in obj.name for pattern in ['CT_', 'MR_', 'PET_'])
+                has_series = '_S' in obj.name
+                # Exclude the main volume objects (they have "_Volume_" in the name)
+                is_main_volume = '_Volume_' in obj.name
+                
+                if has_modality and has_series and not is_main_volume:
+                    mesh_objects.append(obj)
+                    log.info(f"Found mesh object: {obj.name}")
+        
+        # Apply transform to all volumes
+        all_objects = volume_objects + mesh_objects
+        log.info(f"Applying transform to {len(all_objects)} objects ({len(volume_objects)} volumes + {len(mesh_objects)} meshes)")
+        
+        for obj in all_objects:
+            old_location = obj.location.copy()
+            obj.location = (
+                obj.location.x - transform_offset[0],
+                obj.location.y - transform_offset[1],
+                obj.location.z - transform_offset[2]
+            )
+            log.info(f"  {obj.type} {obj.name}: {old_location} -> {obj.location}")
+        
+        # Create debug Empty at origin (for verification)
+        old_empty = bpy.data.objects.get("DICOM_Center_Debug")
+        if old_empty:
+            bpy.data.objects.remove(old_empty, do_unlink=True)
+        
+        empty = bpy.data.objects.new("DICOM_Center_Debug", None)
+        empty.empty_display_type = 'SPHERE'
+        empty.empty_display_size = 0.05  # 5cm sphere
+        empty.location = (0, 0, 0)
+        bpy.context.collection.objects.link(empty)
+        log.info("Created debug Empty at origin (0, 0, 0)")
+        
+        log.info("Transform applied successfully!")
+        log.info("=" * 60)
 
 class IMPORT_OT_dicom_toggle_series_selection(Operator):
     """Toggle series selection for processing"""

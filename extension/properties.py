@@ -263,6 +263,18 @@ def register_scene_props():
         default='GAUSSIAN',
         description="Denoising algorithm (2D slice-by-slice with scipy.ndimage)"
     )
+    
+    # Volume centering properties
+    bpy.types.Scene.center_volume_at_origin = BoolProperty(
+        name="Center Volume at Origin",
+        default=False,
+        description="Center all volumes at world origin (0,0,0) based on the lowest Z-axis series"
+    )
+    bpy.types.Scene.dicom_centering_offset = StringProperty(
+        name="Centering Offset",
+        description="Stored centering offset (X,Y,Z) in meters as JSON string",
+        default=""
+    )
 
     
 
@@ -355,6 +367,8 @@ def unregister_scene_props():
     del bpy.types.Scene.denoise_enabled
     del bpy.types.Scene.denoise_strength
     del bpy.types.Scene.denoise_method
+    del bpy.types.Scene.center_volume_at_origin
+    del bpy.types.Scene.dicom_centering_offset
 
 classes = (
     DicomSeriesProperty,

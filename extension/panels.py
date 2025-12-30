@@ -161,6 +161,13 @@ class VIEW3D_PT_dicom_patient(Panel):
                 
                 denoise_box.label(text="Progress shown in console", icon='INFO')
             
+            # Centering options
+            center_box = box.box()
+            center_box.label(text="Volume Positioning", icon='OBJECT_ORIGIN')
+            
+            row = center_box.row()
+            row.prop(scn, "center_volume_at_origin", text="Center at Origin")
+            
             box.separator()
             
             # Visualization tool (available)
