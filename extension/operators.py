@@ -229,16 +229,13 @@ class IMPORT_OT_dicom_preview(Operator):
             self.report({'ERROR'}, f"Failed to load slice: {e}")
             return {'CANCELLED'}
         
-        # Try to load in existing Image Editor (inline the code)
-        image_editor_found = False
-        for window in context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'IMAGE_EDITOR':
-                    for space in area.spaces:
-                        if space.type == 'IMAGE_EDITOR':
-                            space.image = bpy.data.images.get("DICOM_Preview")
-                            image_editor_found = True
-                            break
+        # Try to load in existing Image Editor
+        from .ui_utils import set_image_in_all_editors
+        
+        image_editor_found = set_image_in_all_editors(
+            context, 
+            bpy.data.images.get("DICOM_Preview")
+        )
         
         if image_editor_found:
             self.report({'INFO'}, f"Preview loaded in Image Editor with {len(series['files'])} slices. Use mouse wheel to scroll.")
@@ -377,21 +374,17 @@ class IMPORT_OT_dicom_open_in_editor(Operator):
     bl_options = {'INTERNAL'}
     
     def execute(self, context):
+        from .ui_utils import set_image_in_all_editors
+        
         # Only look for existing Image Editor areas, never switch automatically
-        image_editor_found = False
+        image_editor_found = set_image_in_all_editors(
+            context,
+            bpy.data.images.get("DICOM_Preview")
+        )
         
-        for window in context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'IMAGE_EDITOR':
-                    # Found one, set the image
-                    for space in area.spaces:
-                        if space.type == 'IMAGE_EDITOR':
-                            space.image = bpy.data.images.get("DICOM_Preview")
-                            image_editor_found = True
-                            self.report({'INFO'}, "Preview loaded in Image Editor")
-                            break
-        
-        if not image_editor_found:
+        if image_editor_found:
+            self.report({'INFO'}, "Preview loaded in Image Editor")
+        else:
             self.report({'WARNING'}, "No Image Editor found. Please manually open an Image Editor area first.")
         
         return {'FINISHED'}
@@ -650,6 +643,8 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
                 except Exception as e:
                     log.error(f"Failed to apply centering offset: {e}")
             
+            from .ui_utils import refresh_all_3d_views
+            
             # Set 3D cursor
             context.scene.cursor.location = blender_pos
             
@@ -657,9 +652,7 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
                 f"3D Cursor set to ({blender_pos[0]:.3f}, {blender_pos[1]:.3f}, {blender_pos[2]:.3f})")
             
             # Redraw 3D views
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
+            refresh_all_3d_views(context)
             
             return {'FINISHED'}
             
@@ -877,6 +870,7 @@ class IMPORT_OT_dicom_preview_series(Operator):
     
     def execute(self, context):
         import json
+
         # Load patient from scene
         if not context.scene.dicom_patient_data:
             self.report({'ERROR'}, "No patient loaded")
@@ -902,14 +896,11 @@ class IMPORT_OT_dicom_preview_series(Operator):
         
         # Clear old DICOM_Preview image to force fresh load
         if "DICOM_Preview" in bpy.data.images:
+            from .ui_utils import clear_image_from_all_editors
+            
             old_img = bpy.data.images["DICOM_Preview"]
             # First, clear it from all Image Editors
-            for window in context.window_manager.windows:
-                for area in window.screen.areas:
-                    if area.type == 'IMAGE_EDITOR':
-                        for space in area.spaces:
-                            if space.type == 'IMAGE_EDITOR' and space.image == old_img:
-                                space.image = None
+            clear_image_from_all_editors(context, old_img)
             # Now remove the image
             bpy.data.images.remove(old_img)
             log.debug("Cleared old DICOM_Preview image")
@@ -936,18 +927,13 @@ class IMPORT_OT_dicom_preview_series(Operator):
             # and force a complete refresh
             dicom_img = bpy.data.images.get("DICOM_Preview")
             if dicom_img:
-                image_editor_found = False
-                for window in context.window_manager.windows:
-                    for area in window.screen.areas:
-                        if area.type == 'IMAGE_EDITOR':
-                            for space in area.spaces:
-                                if space.type == 'IMAGE_EDITOR':
-                                    # Force refresh by clearing and reassigning
-                                    space.image = None
-                                    space.image = dicom_img
-                                    image_editor_found = True
-                            # Tag for redraw
-                            area.tag_redraw()
+                from .ui_utils import set_image_in_all_editors
+                
+                image_editor_found = set_image_in_all_editors(
+                    context, 
+                    dicom_img, 
+                    clear_first=True  # Force refresh
+                )
                 
                 if image_editor_found:
                     self.report({'INFO'}, f"Preview loaded in Image Editor: {series.series_description} ({len(file_paths)} slices)")
