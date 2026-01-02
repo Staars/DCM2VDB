@@ -2,6 +2,7 @@
 
 import numpy as np
 from .utils import SimpleLogger
+from .constants import MM3_TO_ML
 
 # Get logger for this extension
 log = SimpleLogger()
@@ -33,8 +34,8 @@ def calculate_tissue_volume(vol_array, hu_min, hu_max, pixel_spacing, slice_thic
     # Total volume in mm³
     total_volume_mm3 = voxel_count * voxel_volume_mm3
     
-    # Convert to mL (1 mL = 1000 mm³)
-    volume_ml = total_volume_mm3 / 1000.0
+    # Convert to mL (1 mL = MM3_TO_ML mm³)
+    volume_ml = total_volume_mm3 / MM3_TO_ML
     
     log.debug(f"Tissue volume calculation:")
     log.debug(f"  HU range: {hu_min} to {hu_max}")

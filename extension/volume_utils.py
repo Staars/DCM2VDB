@@ -5,6 +5,11 @@ import glob
 import tempfile
 import numpy as np
 from .utils import SimpleLogger
+from .constants import (
+    DENOISING_PERCENTILE_BLEND_MULTIPLIER,
+    DENOISING_WIENER_SIZE_MULTIPLIER,
+    DENOISING_MEDIAN_KERNEL_SIZE
+)
 
 # Get logger for this extension
 log = SimpleLogger()
@@ -80,22 +85,22 @@ def denoise_slice_scipy(slice_array, method='GAUSSIAN', strength=1.0):
     
     elif method == 'PERCENTILE_25':
         # 25th percentile filter - darkens slightly, less aggressive than median
-        size = 3  # Always use smallest kernel
+        size = DENOISING_MEDIAN_KERNEL_SIZE  # Always use smallest kernel
         filtered = ndimage.percentile_filter(slice_array, percentile=25, size=size)
         
         # Blend with original
-        blend_factor = strength * 2.0
+        blend_factor = strength * DENOISING_PERCENTILE_BLEND_MULTIPLIER
         blend_factor = min(blend_factor, 1.0)
         result = (1.0 - blend_factor) * slice_array + blend_factor * filtered
         log.info(f"  Percentile 25% filter with {blend_factor*100:.1f}% blend")
     
     elif method == 'PERCENTILE_75':
         # 75th percentile filter - brightens slightly, less aggressive than median
-        size = 3  # Always use smallest kernel
+        size = DENOISING_MEDIAN_KERNEL_SIZE  # Always use smallest kernel
         filtered = ndimage.percentile_filter(slice_array, percentile=75, size=size)
         
         # Blend with original
-        blend_factor = strength * 2.0
+        blend_factor = strength * DENOISING_PERCENTILE_BLEND_MULTIPLIER
         blend_factor = min(blend_factor, 1.0)
         result = (1.0 - blend_factor) * slice_array + blend_factor * filtered
         log.info(f"  Percentile 75% filter with {blend_factor*100:.1f}% blend")
@@ -106,7 +111,7 @@ def denoise_slice_scipy(slice_array, method='GAUSSIAN', strength=1.0):
             from scipy.signal import wiener
             # Map strength to window size with doubled range: 0.01-1.0 -> 3-21 pixels
             # This allows stronger denoising than before
-            mysize = max(3, int(strength * 40 + 1))
+            mysize = max(DENOISING_MEDIAN_KERNEL_SIZE, int(strength * DENOISING_WIENER_SIZE_MULTIPLIER + 1))
             if mysize % 2 == 0:
                 mysize += 1
             result = wiener(slice_array, mysize=mysize)
@@ -117,17 +122,17 @@ def denoise_slice_scipy(slice_array, method='GAUSSIAN', strength=1.0):
     
     elif method == 'MEDIAN':
         # Median filter with blending for subtle control
-        # Always use 3x3 kernel (minimal), but blend with original based on strength
-        size = 3  # Always use smallest kernel
+        # Always use DENOISING_MEDIAN_KERNEL_SIZE kernel (minimal), but blend with original based on strength
+        size = DENOISING_MEDIAN_KERNEL_SIZE  # Always use smallest kernel
         filtered = ndimage.median_filter(slice_array, size=size)
         
         # Blend: result = (1-strength)*original + strength*filtered
-        blend_factor = strength * 2.0  # Scale 0.01-0.5 to 0.02-1.0 range
+        blend_factor = strength * DENOISING_PERCENTILE_BLEND_MULTIPLIER  # Scale 0.01-0.5 to 0.02-1.0 range
         blend_factor = min(blend_factor, 1.0)  # Cap at 1.0
         
         result = (1.0 - blend_factor) * slice_array + blend_factor * filtered
         
-        log.debug(f"  Median filter (3x3 kernel) with {blend_factor*100:.1f}% blend")
+        log.debug(f"  Median filter ({DENOISING_MEDIAN_KERNEL_SIZE}x{DENOISING_MEDIAN_KERNEL_SIZE} kernel) with {blend_factor*100:.1f}% blend")
     
     else:
         result = slice_array

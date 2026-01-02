@@ -3,6 +3,7 @@
 import os
 import numpy as np
 from .utils import SimpleLogger
+from .constants import MIN_DICOM_FILE_SIZE, SOP_CLASS_SECONDARY_CAPTURE
 
 # Get logger for this extension
 log = SimpleLogger()
@@ -38,7 +39,7 @@ def classify_dicom_file(filepath):
         
         # Check SOP Class for Secondary Capture
         if hasattr(ds, 'SOPClassUID'):
-            if ds.SOPClassUID == '1.2.840.10008.5.1.4.1.1.7':
+            if ds.SOPClassUID == SOP_CLASS_SECONDARY_CAPTURE:
                 return 'secondary'
         
         # Check ImageType
@@ -80,7 +81,7 @@ def gather_dicom_files(root_dir):
         for f in files:
             full_path = os.path.join(dirpath, f)
             try:
-                if f.upper().endswith(('.DCM', '.DICOM', '')) and os.path.getsize(full_path) > 1000:
+                if f.upper().endswith(('.DCM', '.DICOM', '')) and os.path.getsize(full_path) > MIN_DICOM_FILE_SIZE:
                     candidates.add(full_path)
             except:
                 pass

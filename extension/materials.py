@@ -1,12 +1,12 @@
 """Material creation for volume and mesh visualization"""
 
 import bpy
-from .utils import SimpleLogger
 from .constants import *
 from .volume_utils import hu_to_normalized
 from .material_presets import load_preset
 
 # Get logger for this extension
+from .utils import SimpleLogger
 log = SimpleLogger()
 
 def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard", modality="CT", series_description=""):
@@ -63,7 +63,7 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     
     # Volume Principled
     prin = nodes.new("ShaderNodeVolumePrincipled")
-    prin.location = (600, 0)
+    prin.location = VOLUME_PRINCIPLED_LOCATION
     prin.inputs["Anisotropy"].default_value = 0.0
     
     # Volume Info node to read density (already 0-1)
@@ -184,7 +184,7 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
         vol_obj.data.materials[0] = mat
     
     # Set viewport display settings - MUCH HIGHER for visibility
-    vol_obj.data.display.density = 1.0  # High value for normalized data
+    vol_obj.data.display.density = VOLUME_DENSITY_DISPLAY  # High value for normalized data
     
     log.info(f"Volume material created for normalized data")
     log.debug(f"Original HU range: {vol_min:.0f} to {vol_max:.0f}")

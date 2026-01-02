@@ -281,8 +281,10 @@ class IMPORT_OT_dicom_preview_popup(Operator):
         # Create new preview collection
         pcoll = bpy.utils.previews.new()
         
-        # Load up to 100 preview images (10x10 grid)
-        max_previews = 100
+        from .constants import MAX_PREVIEW_IMAGES
+        
+        # Load up to MAX_PREVIEW_IMAGES preview images (10x10 grid)
+        max_previews = MAX_PREVIEW_IMAGES
         step = max(1, len(series['files']) // max_previews)
         
         for i, idx in enumerate(range(0, len(series['files']), step)):
@@ -312,9 +314,11 @@ class IMPORT_OT_dicom_preview_popup(Operator):
                         normalized = np.zeros_like(pixels, dtype=np.uint8)
                 
                 # Save as temporary image
+                from .constants import PREVIEW_THUMBNAIL_SIZE
+                
                 temp_path = os.path.join(tempfile.gettempdir(), f"dicom_preview_{i}.png")
                 img = Image.fromarray(normalized, mode='L')
-                img = img.resize((128, 128), Image.Resampling.LANCZOS)
+                img = img.resize((PREVIEW_THUMBNAIL_SIZE, PREVIEW_THUMBNAIL_SIZE), Image.Resampling.LANCZOS)
                 img.save(temp_path)
                 
                 pcoll.load(f"slice_{i}", temp_path, 'IMAGE')
@@ -323,8 +327,10 @@ class IMPORT_OT_dicom_preview_popup(Operator):
         
         preview_collections["main"] = pcoll
         
+        from .constants import PREVIEW_POPUP_WIDTH
+        
         # Show popup
-        return context.window_manager.invoke_popup(self, width=600)
+        return context.window_manager.invoke_popup(self, width=PREVIEW_POPUP_WIDTH)
     
     def draw(self, context):
         layout = self.layout
@@ -349,7 +355,9 @@ class IMPORT_OT_dicom_preview_popup(Operator):
             # Create grid
             grid = layout.grid_flow(row_major=True, columns=10, align=True)
             
-            for i in range(100):
+            from .constants import MAX_PREVIEW_IMAGES
+            
+            for i in range(MAX_PREVIEW_IMAGES):
                 key = f"slice_{i}"
                 if key in pcoll:
                     preview = pcoll[key]
@@ -581,17 +589,21 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
                 relative_x = dicom_x - position[0]
                 relative_y = dicom_y - position[1]
                 
+                from .constants import MM_TO_METERS
+                
                 # Convert to meters
-                offset_x = relative_x / 1000.0
-                offset_y = relative_y / 1000.0
+                offset_x = relative_x * MM_TO_METERS
+                offset_y = relative_y * MM_TO_METERS
                 
                 # Volume Y length in meters
-                volume_y_length = img_height_mm / 1000.0
+                volume_y_length = img_height_mm * MM_TO_METERS
+                
+                from .constants import MM_TO_METERS
                 
                 blender_pos = (
                     vol_loc[0] - offset_x,
                     vol_loc[1] - (volume_y_length - offset_y) + volume_y_length,
-                    pos_3d[2] / 1000.0
+                    pos_3d[2] * MM_TO_METERS
                 )
                 
                 log.debug("===== FINAL COORDINATES =====")

@@ -4,6 +4,7 @@ import bpy
 import numpy as np
 from .utils import SimpleLogger
 from .dicom_io import load_slice
+from .constants import PERCENTILE_MIN, PERCENTILE_MAX, PREVIEW_ICON_SIZE
 
 # Get logger for this extension
 log = SimpleLogger()
@@ -28,7 +29,7 @@ def load_and_display_slice(context, filepath, series):
         normalized = ((pixels_windowed - low) / ww).astype(np.float32)
     else:
         # Auto window/level using percentiles
-        pmin, pmax = np.percentile(pixels, [1, 99])
+        pmin, pmax = np.percentile(pixels, [PERCENTILE_MIN, PERCENTILE_MAX])
         if pmax > pmin:
             normalized = np.clip((pixels - pmin) / (pmax - pmin), 0, 1).astype(np.float32)
         else:
@@ -148,7 +149,7 @@ def generate_series_preview_icons(series, dicom_root_path, preview_collection):
                 pixels_windowed = np.clip(pixels, low, high)
                 normalized = ((pixels_windowed - low) / ww * 255).astype(np.uint8)
             else:
-                pmin, pmax = np.percentile(pixels, [1, 99])
+                pmin, pmax = np.percentile(pixels, [PERCENTILE_MIN, PERCENTILE_MAX])
                 if pmax > pmin:
                     normalized = np.clip((pixels - pmin) / (pmax - pmin) * 255, 0, 255).astype(np.uint8)
                 else:
@@ -158,8 +159,8 @@ def generate_series_preview_icons(series, dicom_root_path, preview_collection):
             temp_path = os.path.join(tempfile.gettempdir(), f"dicom_preview_{series.series_instance_uid}_{i}.png")
             img = Image.fromarray(normalized, mode='L')
             
-            # Resize to small icon (32x32)
-            img = img.resize((32, 32), Image.Resampling.LANCZOS)
+            # Resize to small icon (PREVIEW_ICON_SIZE x PREVIEW_ICON_SIZE)
+            img = img.resize((PREVIEW_ICON_SIZE, PREVIEW_ICON_SIZE), Image.Resampling.LANCZOS)
             img.save(temp_path)
             
             # Load into preview collection

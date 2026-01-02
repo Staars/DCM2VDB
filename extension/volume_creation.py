@@ -77,12 +77,14 @@ def create_volume(slices, series_number=1):
             # 2D slice-by-slice filtering (existing methods)
             from .volume_utils import denoise_slice_scipy
             
+            from .constants import DENOISING_PROGRESS_LOG_INTERVAL
+            
             log.info(f"Applying 2D slice-by-slice filtering ({method})...")
             for i in range(depth):
                 vol[i] = denoise_slice_scipy(vol[i], method=method, strength=strength)
                 
-                # Log progress every 10%
-                if (i + 1) % max(1, depth // 10) == 0:
+                # Log progress every DENOISING_PROGRESS_LOG_INTERVAL%
+                if (i + 1) % max(1, depth // DENOISING_PROGRESS_LOG_INTERVAL) == 0:
                     progress = (i + 1) / depth
                     log.info(f"  Series {series_number} denoising: {progress*100:.0f}% ({i+1}/{depth} slices)")
             
@@ -200,8 +202,10 @@ def create_volume(slices, series_number=1):
         grid.copyFromArray(vol_for_vdb)
         grid.name = "density"
         
+        from .constants import MM_TO_METERS
+        
         # Convert spacing to meters
-        spacing_meters = [s * 0.001 for s in spacing]  # [X, Y, Z] in meters
+        spacing_meters = [s * MM_TO_METERS for s in spacing]  # [X, Y, Z] in meters
         log.debug(f"Spacing in meters (X, Y, Z): {spacing_meters}")
         
         # Fix the OpenVDB transform matrix
@@ -235,14 +239,16 @@ def create_volume(slices, series_number=1):
     # Get the first slice's ImagePositionPatient (position of first voxel)
     first_position = slices[0]["position"]  # Already in mm
     
+    from .constants import MM_TO_METERS
+    
     # Convert DICOM patient coordinates to Blender world coordinates
     # DICOM: X=right, Y=anterior, Z=superior (head)
     # Blender: X=right, Y=back, Z=up
     # With 270° Y-axis rotation applied, negate X
     blender_location = (
-        -first_position[0] * 0.001,  # X: negate for 270° rotation (mm → m)
-        -first_position[1] * 0.001,  # Y: anterior → back (mm → m, flip)
-        first_position[2] * 0.001    # Z: superior (mm → m)
+        -first_position[0] * MM_TO_METERS,  # X: negate for 270° rotation (mm → m)
+        -first_position[1] * MM_TO_METERS,  # Y: anterior → back (mm → m, flip)
+        first_position[2] * MM_TO_METERS    # Z: superior (mm → m)
     )
     
     # Get FrameOfReferenceUID and ImageOrientationPatient from first slice
@@ -306,11 +312,13 @@ def create_volume(slices, series_number=1):
         log.info("=" * 60)
         
         for mesh_def in preset.meshes:
+            from .constants import MIN_ISLAND_VERTICES, MESH_THRESHOLD_MAX
+            
             mesh_name = mesh_def.get("name", "mesh")
             mesh_label = mesh_def.get("label", mesh_name.title())
             mesh_threshold = mesh_def.get("threshold", 400)
             separate_islands = mesh_def.get("separate_islands", False)
-            min_island_verts = mesh_def.get("min_island_verts", 100)
+            min_island_verts = mesh_def.get("min_island_verts", MIN_ISLAND_VERTICES)
             
             # Object and material names
             mesh_obj_name = f"{modality_prefix}_{mesh_label.replace(' ', '_')}_S{series_number}"
@@ -336,30 +344,39 @@ def create_volume(slices, series_number=1):
                 nodes.clear()
                 
                 # Simple material with pointiness-based coloring
+                from .constants import (
+                    MESH_COLOR_RAMP_POINTINESS_MIN,
+                    MESH_COLOR_RAMP_POINTINESS_MAX,
+                    MESH_COLOR_A_RGB,
+                    MESH_COLOR_B_RGB,
+                    MESH_ROUGHNESS,
+                    MESH_SPECULAR_MULTIPLIER
+                )
+                
                 geom = nodes.new('ShaderNodeNewGeometry')
                 geom.location = (-565, 330)
                 
                 color_ramp = nodes.new('ShaderNodeValToRGB')
                 color_ramp.location = (-238, 418)
-                color_ramp.color_ramp.elements[0].position = 0.414
+                color_ramp.color_ramp.elements[0].position = MESH_COLOR_RAMP_POINTINESS_MIN
                 color_ramp.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
-                color_ramp.color_ramp.elements[1].position = 0.527
+                color_ramp.color_ramp.elements[1].position = MESH_COLOR_RAMP_POINTINESS_MAX
                 color_ramp.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
                 
                 math_node = nodes.new('ShaderNodeMath')
                 math_node.location = (144, 301)
                 math_node.operation = 'MULTIPLY'
-                math_node.inputs[1].default_value = 0.5
+                math_node.inputs[1].default_value = MESH_SPECULAR_MULTIPLIER
                 
                 mix = nodes.new('ShaderNodeMix')
                 mix.location = (74, 570)
                 mix.data_type = 'RGBA'
-                mix.inputs['A'].default_value = (0.7, 0.301, 0.117, 1.0)
-                mix.inputs['B'].default_value = (0.95, 0.92, 0.85, 1.0)
+                mix.inputs['A'].default_value = (*MESH_COLOR_A_RGB, 1.0)
+                mix.inputs['B'].default_value = (*MESH_COLOR_B_RGB, 1.0)
                 
                 bsdf = nodes.new('ShaderNodeBsdfPrincipled')
                 bsdf.location = (555, 449)
-                bsdf.inputs['Roughness'].default_value = 0.4
+                bsdf.inputs['Roughness'].default_value = MESH_ROUGHNESS
                 
                 out = nodes.new('ShaderNodeOutputMaterial')
                 out.location = (976, 418)
@@ -381,9 +398,11 @@ def create_volume(slices, series_number=1):
             mesh_obj.location = vol_obj.location.copy()
             mesh_obj.rotation_euler = vol_obj.rotation_euler.copy()
             
+            from .constants import MESH_THRESHOLD_MAX
+            
             # Create geometry nodes for mesh
             mesh_mod = create_tissue_mesh_geonodes(
-                mesh_obj, mesh_label, mesh_threshold, 10000, mat_mesh
+                mesh_obj, mesh_label, mesh_threshold, MESH_THRESHOLD_MAX, mat_mesh
             )
             if mesh_mod:
                 mesh_mod.show_viewport = True  # Visible by default
