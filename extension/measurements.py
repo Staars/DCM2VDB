@@ -1,6 +1,8 @@
 """Volume measurement and quantification tools"""
 
 import numpy as np
+from typing import Tuple
+from numpy.typing import NDArray
 from .utils import SimpleLogger
 from .constants import MM3_TO_ML
 
@@ -8,19 +10,25 @@ from .constants import MM3_TO_ML
 log = SimpleLogger()
 
 
-def calculate_tissue_volume(vol_array, hu_min, hu_max, pixel_spacing, slice_thickness):
+def calculate_tissue_volume(
+    vol_array: NDArray[np.float32], 
+    hu_min: float, 
+    hu_max: float, 
+    pixel_spacing: Tuple[float, float], 
+    slice_thickness: float
+) -> float:
     """
     Calculate volume of tissue in HU range.
     
     Args:
-        vol_array: numpy array with HU values
-        hu_min: minimum HU threshold
-        hu_max: maximum HU threshold
+        vol_array: Numpy array with HU values (3D volume)
+        hu_min: Minimum HU threshold
+        hu_max: Maximum HU threshold
         pixel_spacing: (row_spacing, col_spacing) in mm
-        slice_thickness: slice thickness in mm
+        slice_thickness: Slice thickness in mm
     
     Returns:
-        volume in milliliters (mL)
+        Volume in milliliters (mL)
     """
     # Create mask for HU range
     mask = (vol_array >= hu_min) & (vol_array <= hu_max)

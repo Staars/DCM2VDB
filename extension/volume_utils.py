@@ -4,6 +4,8 @@ import os
 import glob
 import tempfile
 import numpy as np
+from typing import Optional, Literal
+from numpy.typing import NDArray
 from .utils import SimpleLogger
 from .constants import (
     DENOISING_PERCENTILE_BLEND_MULTIPLIER,
@@ -14,8 +16,13 @@ from .constants import (
 # Get logger for this extension
 log = SimpleLogger()
 
-def clean_old_volumes(name_prefix="CT_Volume"):
-    """Remove old volume objects, materials, and volume data"""
+def clean_old_volumes(name_prefix: str = "CT_Volume") -> None:
+    """
+    Remove old volume objects, materials, and volume data.
+    
+    Args:
+        name_prefix: Prefix of objects to remove (e.g., 'CT_Volume', 'MR_Volume')
+    """
     import bpy
     
     for o in list(bpy.data.objects):
@@ -30,13 +37,31 @@ def clean_old_volumes(name_prefix="CT_Volume"):
         if v.name.startswith(name_prefix): 
             bpy.data.volumes.remove(v, do_unlink=True)
 
-def hu_to_normalized(hu_value):
-    """Convert Hounsfield Unit to normalized 0-1 value using fixed range"""
+def hu_to_normalized(hu_value: float) -> float:
+    """
+    Convert Hounsfield Unit to normalized 0-1 value using fixed range.
+    
+    Args:
+        hu_value: Hounsfield Unit value
+        
+    Returns:
+        Normalized value between 0 and 1
+    """
     from .constants import HU_MIN_FIXED, HU_MAX_FIXED
     return (hu_value - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
 
-def save_debug_slice(volume_array, output_name="dicom_middle_slice_debug.png"):
-    """Save middle slice of volume as PNG for debugging"""
+def save_debug_slice(volume_array: NDArray[np.float32], 
+                     output_name: str = "dicom_middle_slice_debug.png") -> Optional[str]:
+    """
+    Save middle slice of volume as PNG for debugging.
+    
+    Args:
+        volume_array: 3D numpy array (depth, height, width)
+        output_name: Output filename
+        
+    Returns:
+        Path to saved image, or None if failed
+    """
     try:
         from PIL import Image
         
@@ -60,17 +85,21 @@ def save_debug_slice(volume_array, output_name="dicom_middle_slice_debug.png"):
         return None
 
 
-def denoise_slice_scipy(slice_array, method='GAUSSIAN', strength=1.0):
+def denoise_slice_scipy(
+    slice_array: NDArray[np.float32], 
+    method: Literal['GAUSSIAN', 'PERCENTILE_25', 'PERCENTILE_75', 'WIENER', 'MEDIAN', 'GAUSSIAN_3D'] = 'GAUSSIAN',
+    strength: float = 1.0
+) -> NDArray[np.float32]:
     """
     Denoise a single 2D slice using scipy.ndimage - FAST and high quality!
     
     Args:
         slice_array: 2D numpy array (single slice)
-        method: 'GAUSSIAN' or 'MEDIAN'
-        strength: filter strength (1.0 = mild, 2.0 = moderate, 3.0 = strong)
+        method: Denoising method to use
+        strength: Filter strength (0.01-1.0, where 0.1=subtle, 0.5=strong)
     
     Returns:
-        Denoised 2D numpy array
+        Denoised 2D numpy array with same dtype as input
     """
     try:
         from scipy import ndimage
