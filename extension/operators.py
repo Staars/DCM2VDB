@@ -803,7 +803,8 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             context.scene.dicom_patient_data = patient.to_json()
             
             # Automatically calculate tissue volumes for this series
-            self._calculate_all_volumes(context, series)
+            from .measurements import calculate_and_store_tissue_volumes
+            calculate_and_store_tissue_volumes(context, series)
             
             # Save updated measurements
             context.scene.dicom_patient_data = patient.to_json()
@@ -816,49 +817,6 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             import traceback
             traceback.print_exc()
             return {'CANCELLED'}
-    
-    def _calculate_all_volumes(self, context, series):
-        """Calculate all tissue volumes automatically for a specific series"""
-        from .measurements import calculate_tissue_volume
-        import json
-        
-        scn = context.scene
-        
-        # Check if volume data is available
-        if not scn.dicom_volume_data_path or not os.path.exists(scn.dicom_volume_data_path):
-            return
-        
-        try:
-            # Load volume data
-            vol_array = np.load(scn.dicom_volume_data_path)
-            
-            # Parse spacing
-            spacing = json.loads(scn.dicom_volume_spacing)  # [X, Y, Z] in mm
-            pixel_spacing = (spacing[1], spacing[0])  # (row, col) = (Y, X)
-            slice_thickness = spacing[2]  # Z
-            
-            # Calculate all tissue volumes and store in series (dynamic from preset)
-            from .properties import get_tissue_thresholds_from_preset
-            thresholds = get_tissue_thresholds_from_preset(scn.dicom_active_material_preset)
-            
-            # Clear previous measurements
-            series.tissue_volumes = {}
-            
-            # Calculate volume for each tissue defined in preset
-            for tissue_name, tissue_range in thresholds.items():
-                volume_ml = calculate_tissue_volume(
-                    vol_array,
-                    tissue_range.get('min', 0),
-                    tissue_range.get('max', 0),
-                    pixel_spacing, slice_thickness
-                )
-                if volume_ml > 0:
-                    series.tissue_volumes[tissue_name] = volume_ml
-            
-            log.debug(f"Tissue volumes calculated for series {series.series_number}")
-            
-        except Exception as e:
-            log.error(f"Failed to calculate volumes: {e}")
 
 class IMPORT_OT_dicom_preview_series(Operator):
     """Preview series in Image Editor (2D slice viewer)"""
@@ -1011,7 +969,8 @@ class IMPORT_OT_dicom_set_tool(Operator):
                             patient.volume_objects[series.series_instance_uid] = vol_obj.name
                             
                             # Calculate measurements
-                            self._calculate_volumes_for_series(context, series)
+                            from .measurements import calculate_and_store_tissue_volumes
+                            calculate_and_store_tissue_volumes(context, series)
                             
                             log.info(f"Auto-visualized series {series.series_number}")
                     
@@ -1062,41 +1021,6 @@ class IMPORT_OT_dicom_set_tool(Operator):
                 log.debug(f"Removed material: {mat_name}")
         
         log.info("Cleared all DICOM volumes and meshes")
-    
-    def _calculate_volumes_for_series(self, context, series):
-        """Calculate tissue volumes for a series"""
-        from .measurements import calculate_tissue_volume
-        import json
-        
-        scn = context.scene
-        if not scn.dicom_volume_data_path or not os.path.exists(scn.dicom_volume_data_path):
-            return
-        
-        try:
-            vol_array = np.load(scn.dicom_volume_data_path)
-            spacing = json.loads(scn.dicom_volume_spacing)
-            pixel_spacing = (spacing[1], spacing[0])
-            slice_thickness = spacing[2]
-            
-            # Calculate all tissue volumes and store in series (dynamic from preset)
-            from .properties import get_tissue_thresholds_from_preset
-            thresholds = get_tissue_thresholds_from_preset(scn.dicom_active_material_preset)
-            
-            # Clear previous measurements
-            series.tissue_volumes = {}
-            
-            # Calculate volume for each tissue defined in preset
-            for tissue_name, tissue_range in thresholds.items():
-                volume_ml = calculate_tissue_volume(
-                    vol_array,
-                    tissue_range.get('min', 0),
-                    tissue_range.get('max', 0),
-                    pixel_spacing, slice_thickness
-                )
-                if volume_ml > 0:
-                    series.tissue_volumes[tissue_name] = volume_ml
-        except Exception as e:
-            log.error(f"Volume calculation error: {e}")
     
     def _calculate_centering_transform(self, context, patient):
         """Calculate the transform needed to center volumes at origin and create debug Empty"""
