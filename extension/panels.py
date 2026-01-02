@@ -329,7 +329,8 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
         if dicom_img and context.space_data.image != dicom_img:
             context.space_data.image = dicom_img
         
-        series_list = eval(scn.dicom_series_data)
+        import json
+        series_list = json.loads(scn.dicom_series_data)
         series = None
         if scn.dicom_preview_series_index < len(series_list):
             series = series_list[scn.dicom_preview_series_index]

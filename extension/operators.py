@@ -12,7 +12,6 @@ from .patient import Patient
 from .utils import SimpleLogger
 
 import numpy as np
-import os
 
 log = SimpleLogger()
 
@@ -191,7 +190,7 @@ class IMPORT_OT_dicom_scan(Operator):
             item.window_center = series['window_center'] if series['window_center'] is not None else 0.0
             item.window_width = series['window_width'] if series['window_width'] is not None else 0.0
         
-        context.scene.dicom_series_data = str(series_list)
+        context.scene.dicom_series_data = json.dumps(series_list)
         
         self.report({'INFO'}, f"Found {len(series_list)} series with {len(files)} total files")
         return {'FINISHED'}
@@ -207,8 +206,10 @@ class IMPORT_OT_dicom_preview(Operator):
     bl_options = {'REGISTER'}
     
     def execute(self, context):
+        import json
+        
         # Get series data from stored index
-        series_list = eval(context.scene.dicom_series_data)
+        series_list = json.loads(context.scene.dicom_series_data)
         series_idx = context.scene.dicom_preview_series_index
         
         if series_idx >= len(series_list):
@@ -262,9 +263,10 @@ class IMPORT_OT_dicom_preview_popup(Operator):
         import bpy.utils.previews
         from PIL import Image
         import tempfile
+        import json
         
         # Load preview images for matrix view
-        series_list = eval(context.scene.dicom_series_data)
+        series_list = json.loads(context.scene.dicom_series_data)
         if self.series_index >= len(series_list):
             return {'CANCELLED'}
         
@@ -334,9 +336,10 @@ class IMPORT_OT_dicom_preview_popup(Operator):
     
     def draw(self, context):
         layout = self.layout
+        import json
         
         # Show series info
-        series_list = eval(context.scene.dicom_series_data)
+        series_list = json.loads(context.scene.dicom_series_data)
         if context.scene.dicom_preview_series_index < len(series_list):
             series = series_list[context.scene.dicom_preview_series_index]
             row = layout.row()
@@ -402,7 +405,9 @@ class IMPORT_OT_dicom_preview_slice(Operator):
     slice_index: IntProperty()
     
     def execute(self, context):
-        series_list = eval(context.scene.dicom_series_data)
+        import json
+        
+        series_list = json.loads(context.scene.dicom_series_data)
         series_idx = context.scene.dicom_preview_series_index
         
         if series_idx >= len(series_list):
@@ -437,6 +442,8 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
         return {'FINISHED'}
     
     def set_cursor_from_mouse(self, context, event):
+        import json
+        
         # Get mouse position in image space
         region = context.region
         space = context.space_data
@@ -493,7 +500,7 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
             patient = Patient.from_json(context.scene.dicom_patient_data)
             
             # Get the series being previewed
-            series_list = eval(context.scene.dicom_series_data)
+            series_list = json.loads(context.scene.dicom_series_data)
             if not series_list:
                 return {'CANCELLED'}
             
@@ -671,6 +678,8 @@ class IMAGE_OT_dicom_scroll(Operator):
     direction: IntProperty(default=0)
     
     def execute(self, context):
+        import json
+        
         if context.scene.dicom_preview_slice_count > 0:
             current = context.scene.dicom_preview_slice_index
             new_index = current + self.direction
@@ -678,7 +687,7 @@ class IMAGE_OT_dicom_scroll(Operator):
             
             if new_index != current:
                 # Load the slice directly
-                series_list = eval(context.scene.dicom_series_data)
+                series_list = json.loads(context.scene.dicom_series_data)
                 series_idx = context.scene.dicom_preview_series_index
                 
                 if series_idx < len(series_list):
@@ -698,7 +707,9 @@ class IMPORT_OT_dicom_import_series(Operator):
     series_index: IntProperty()
 
     def execute(self, context):
-        series_list = eval(context.scene.dicom_series_data)
+        import json
+        
+        series_list = json.loads(context.scene.dicom_series_data)
         if self.series_index >= len(series_list):
             self.report({'ERROR'}, "Invalid series index")
             return {'CANCELLED'}
@@ -816,6 +827,7 @@ class IMPORT_OT_dicom_visualize_series(Operator):
     def _calculate_all_volumes(self, context, series):
         """Calculate all tissue volumes automatically for a specific series"""
         from .measurements import calculate_tissue_volume
+        import json
         
         scn = context.scene
         
@@ -828,7 +840,7 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             vol_array = np.load(scn.dicom_volume_data_path)
             
             # Parse spacing
-            spacing = eval(scn.dicom_volume_spacing)  # [X, Y, Z] in mm
+            spacing = json.loads(scn.dicom_volume_spacing)  # [X, Y, Z] in mm
             pixel_spacing = (spacing[1], spacing[0])  # (row, col) = (Y, X)
             slice_thickness = spacing[2]  # Z
             
@@ -864,6 +876,7 @@ class IMPORT_OT_dicom_preview_series(Operator):
     series_uid: StringProperty()
     
     def execute(self, context):
+        import json
         # Load patient from scene
         if not context.scene.dicom_patient_data:
             self.report({'ERROR'}, "No patient loaded")
@@ -913,7 +926,7 @@ class IMPORT_OT_dicom_preview_series(Operator):
             'window_center': series.window_center,
             'window_width': series.window_width,
         }]
-        context.scene.dicom_series_data = str(series_list)
+        context.scene.dicom_series_data = json.dumps(series_list)
         
         # Load first slice
         try:
@@ -1067,6 +1080,7 @@ class IMPORT_OT_dicom_set_tool(Operator):
     def _calculate_volumes_for_series(self, context, series):
         """Calculate tissue volumes for a series"""
         from .measurements import calculate_tissue_volume
+        import json
         
         scn = context.scene
         if not scn.dicom_volume_data_path or not os.path.exists(scn.dicom_volume_data_path):
@@ -1074,7 +1088,7 @@ class IMPORT_OT_dicom_set_tool(Operator):
         
         try:
             vol_array = np.load(scn.dicom_volume_data_path)
-            spacing = eval(scn.dicom_volume_spacing)
+            spacing = json.loads(scn.dicom_volume_spacing)
             pixel_spacing = (spacing[1], spacing[0])
             slice_thickness = spacing[2]
             
@@ -1390,6 +1404,7 @@ class IMPORT_OT_dicom_calculate_volume(Operator):
     
     def execute(self, context):
         from .measurements import calculate_tissue_volume
+        import json
         
         scn = context.scene
         
@@ -1403,7 +1418,7 @@ class IMPORT_OT_dicom_calculate_volume(Operator):
             vol_array = np.load(scn.dicom_volume_data_path)
             
             # Parse spacing
-            spacing = eval(scn.dicom_volume_spacing)  # [X, Y, Z] in mm
+            spacing = json.loads(scn.dicom_volume_spacing)  # [X, Y, Z] in mm
             pixel_spacing = (spacing[1], spacing[0])  # (row, col) = (Y, X)
             slice_thickness = spacing[2]  # Z
             

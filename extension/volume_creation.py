@@ -165,9 +165,11 @@ def create_volume(slices, series_number=1):
     np.save(numpy_path, vol)
     log.info(f"Saved volume data to: {numpy_path}")
     
+    import json
+    
     # Store in scene for recomputation
     bpy.context.scene.dicom_volume_data_path = numpy_path
-    bpy.context.scene.dicom_volume_spacing = str(spacing)  # [X, Y, Z] in mm
+    bpy.context.scene.dicom_volume_spacing = json.dumps(spacing)  # [X, Y, Z] in mm
     bpy.context.scene.dicom_volume_unique_id = unique_id
     # Store HU range for threshold conversion
     bpy.context.scene.dicom_volume_hu_min = vol_min
