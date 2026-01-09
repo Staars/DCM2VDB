@@ -675,8 +675,23 @@ class IMAGE_OT_dicom_scroll(Operator):
         
         if context.scene.dicom_preview_slice_count > 0:
             current = context.scene.dicom_preview_slice_index
-            new_index = current + self.direction
-            new_index = max(0, min(context.scene.dicom_preview_slice_count - 1, new_index))
+            
+            # For 4D series, constrain scrolling to current time point
+            if context.scene.dicom_preview_is_4d:
+                slices_per_tp = context.scene.dicom_preview_slices_per_time_point
+                current_tp = context.scene.dicom_preview_time_point_index
+                
+                # Calculate slice range for current time point
+                tp_start = current_tp * slices_per_tp
+                tp_end = tp_start + slices_per_tp - 1
+                
+                # Calculate new index within time point
+                new_index = current + self.direction
+                new_index = max(tp_start, min(tp_end, new_index))
+            else:
+                # Regular series - scroll through all slices
+                new_index = current + self.direction
+                new_index = max(0, min(context.scene.dicom_preview_slice_count - 1, new_index))
             
             if new_index != current:
                 # Load the slice directly
@@ -688,6 +703,43 @@ class IMAGE_OT_dicom_scroll(Operator):
                     if new_index < len(series['files']):
                         context.scene.dicom_preview_slice_index = new_index
                         load_and_display_slice(context, series['files'][new_index], series)
+        
+        return {'FINISHED'}
+
+class IMAGE_OT_dicom_scroll_time_point(Operator):
+    """Scroll through 4D time points"""
+    bl_idname = "image.dicom_scroll_time_point"
+    bl_label = "Scroll Time Points"
+    bl_options = {'INTERNAL'}
+    
+    direction: IntProperty(default=0)
+    
+    def execute(self, context):
+        import json
+        
+        if not context.scene.dicom_preview_is_4d:
+            return {'CANCELLED'}
+        
+        current_tp = context.scene.dicom_preview_time_point_index
+        new_tp = current_tp + self.direction
+        new_tp = max(0, min(context.scene.dicom_preview_time_point_count - 1, new_tp))
+        
+        if new_tp != current_tp:
+            context.scene.dicom_preview_time_point_index = new_tp
+            
+            # Jump to first slice of new time point
+            slices_per_tp = context.scene.dicom_preview_slices_per_time_point
+            new_slice_index = new_tp * slices_per_tp
+            
+            # Load the slice
+            series_list = json.loads(context.scene.dicom_series_data)
+            series_idx = context.scene.dicom_preview_series_index
+            
+            if series_idx < len(series_list):
+                series = series_list[series_idx]
+                if new_slice_index < len(series['files']):
+                    context.scene.dicom_preview_slice_index = new_slice_index
+                    load_and_display_slice(context, series['files'][new_slice_index], series)
         
         return {'FINISHED'}
 
@@ -869,6 +921,19 @@ class IMPORT_OT_dicom_preview_series(Operator):
         context.scene.dicom_preview_slice_count = len(file_paths)
         context.scene.dicom_preview_series_index = 0  # Always use index 0 for single series
         
+        # Store 4D metadata if applicable
+        if series.is_4d:
+            context.scene.dicom_preview_is_4d = True
+            context.scene.dicom_preview_time_point_index = 0
+            context.scene.dicom_preview_time_point_count = series.num_time_points
+            context.scene.dicom_preview_slices_per_time_point = series.time_points[0]['slice_count']
+            log.info(f"4D preview: {series.num_time_points} time points, {series.time_points[0]['slice_count']} slices per time point")
+        else:
+            context.scene.dicom_preview_is_4d = False
+            context.scene.dicom_preview_time_point_index = 0
+            context.scene.dicom_preview_time_point_count = 0
+            context.scene.dicom_preview_slices_per_time_point = 0
+        
         # Store series data in old format for compatibility with preview_slice and scroll operators
         series_list = [{
             'files': file_paths,
@@ -944,22 +1009,18 @@ class IMPORT_OT_dicom_set_tool(Operator):
                     self.report({'INFO'}, f"Auto-visualizing {len(selected_series)} selected series...")
                     
                     for series in selected_series:
-                        # Build absolute file paths
-                        file_paths = [os.path.join(patient.dicom_root_path, rel_path) 
-                                     for rel_path in series.file_paths]
+                        # Check if this is a 4D series
+                        is_4d = hasattr(series, 'is_4d') and series.is_4d
                         
-                        # Load slices
-                        from .dicom_io import load_slice
-                        slices = []
-                        for path in file_paths:
-                            slice_data = load_slice(path)
-                            if slice_data is not None:
-                                slices.append(slice_data)
-                        
-                        if len(slices) >= 2:
-                            # Create volume
+                        if is_4d:
+                            # 4D series - pass time points data
+                            log.info(f"Visualizing 4D series: {series.series_description}")
                             from .volume import create_volume
-                            vol_obj = create_volume(slices, series_number=series.series_number)
+                            vol_obj = create_volume(
+                                slices=None,  # Not used for 4D
+                                series_number=series.series_number,
+                                time_points_data=series.time_points
+                            )
                             
                             # Update series state
                             series.is_loaded = True
@@ -968,11 +1029,42 @@ class IMPORT_OT_dicom_set_tool(Operator):
                             # Store volume object reference
                             patient.volume_objects[series.series_instance_uid] = vol_obj.name
                             
-                            # Calculate measurements
+                            # Calculate measurements for 4D (uses first time point)
                             from .measurements import calculate_and_store_tissue_volumes
                             calculate_and_store_tissue_volumes(context, series)
                             
-                            log.info(f"Auto-visualized series {series.series_number}")
+                            log.info(f"Auto-visualized 4D series {series.series_number}")
+                        else:
+                            # Regular series
+                            # Build absolute file paths
+                            file_paths = [os.path.join(patient.dicom_root_path, rel_path) 
+                                         for rel_path in series.file_paths]
+                            
+                            # Load slices
+                            from .dicom_io import load_slice
+                            slices = []
+                            for path in file_paths:
+                                slice_data = load_slice(path)
+                                if slice_data is not None:
+                                    slices.append(slice_data)
+                            
+                            if len(slices) >= 2:
+                                # Create volume
+                                from .volume import create_volume
+                                vol_obj = create_volume(slices, series_number=series.series_number)
+                                
+                                # Update series state
+                                series.is_loaded = True
+                                series.is_visible = True
+                                
+                                # Store volume object reference
+                                patient.volume_objects[series.series_instance_uid] = vol_obj.name
+                                
+                                # Calculate measurements
+                                from .measurements import calculate_and_store_tissue_volumes
+                                calculate_and_store_tissue_volumes(context, series)
+                                
+                                log.info(f"Auto-visualized series {series.series_number}")
                     
                     # Save updated patient data
                     context.scene.dicom_patient_data = patient.to_json()
@@ -1438,6 +1530,7 @@ classes = (
     IMPORT_OT_dicom_preview_slice,
     IMAGE_OT_dicom_set_cursor_3d,
     IMAGE_OT_dicom_scroll,
+    IMAGE_OT_dicom_scroll_time_point,
     IMPORT_OT_dicom_import_series,
 )
 

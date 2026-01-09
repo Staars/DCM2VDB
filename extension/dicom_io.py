@@ -87,66 +87,204 @@ def gather_dicom_files(root_dir):
                 pass
     return list(candidates)
 
-def organize_by_series(file_paths):
-    """Organize DICOM files by SeriesInstanceUID"""
-    series_dict = {}
+def analyze_series_for_4d(file_paths):
+    """
+    Analyze DICOM files to detect 4D series based on AcquisitionNumber.
+    
+    Returns:
+        dict: {series_uid: {
+            'is_4d': bool,
+            'acquisition_numbers': [list],
+            'files_by_acquisition': {acq_num: [file_paths]},
+            'metadata': {...}
+        }}
+    """
+    series_data = {}
     
     for path in file_paths:
         try:
             ds = dcmread(path, stop_before_pixels=True, force=True)
             series_uid = getattr(ds, 'SeriesInstanceUID', 'UNKNOWN')
+            acquisition_num = getattr(ds, 'AcquisitionNumber', None)
+            instance_num = getattr(ds, 'InstanceNumber', None)
             
-            if series_uid not in series_dict:
-                # Get image dimensions from first file
-                try:
-                    ds_full = dcmread(path, force=True)
-                    if hasattr(ds_full, 'pixel_array'):
-                        rows, cols = ds_full.pixel_array.shape
-                    else:
-                        rows = getattr(ds, 'Rows', 0)
-                        cols = getattr(ds, 'Columns', 0)
-                except:
-                    rows = getattr(ds, 'Rows', 0)
-                    cols = getattr(ds, 'Columns', 0)
-                
-                # Get spacing info
-                pixel_spacing = getattr(ds, 'PixelSpacing', [1.0, 1.0])
-                slice_thickness = float(getattr(ds, 'SliceThickness', 1.0))
-                
-                series_dict[series_uid] = {
-                    'uid': series_uid,
-                    'description': getattr(ds, 'SeriesDescription', 'No Description'),
-                    'modality': getattr(ds, 'Modality', 'Unknown'),
-                    'number': getattr(ds, 'SeriesNumber', 0),
-                    'files': [],
-                    'instance_count': 0,
-                    'rows': rows,
-                    'cols': cols,
-                    'pixel_spacing': [float(x) for x in pixel_spacing],
-                    'slice_thickness': slice_thickness,
-                    'window_center': float(getattr(ds, 'WindowCenter', 0)) if hasattr(ds, 'WindowCenter') else None,
-                    'window_width': float(getattr(ds, 'WindowWidth', 0)) if hasattr(ds, 'WindowWidth') else None,
-                    'slice_locations': [],
+            # Initialize series data
+            if series_uid not in series_data:
+                series_data[series_uid] = {
+                    'acquisition_numbers': set(),
+                    'files_by_acquisition': {},
+                    'metadata': {
+                        'description': getattr(ds, 'SeriesDescription', 'No Description'),
+                        'modality': getattr(ds, 'Modality', 'Unknown'),
+                        'series_number': getattr(ds, 'SeriesNumber', 0),
+                    }
                 }
             
-            series_dict[series_uid]['files'].append(path)
-            series_dict[series_uid]['slice_locations'].append(
-                float(getattr(ds, 'SliceLocation', getattr(ds, 'InstanceNumber', 0)))
-            )
-            series_dict[series_uid]['instance_count'] = len(series_dict[series_uid]['files'])
+            # Track acquisition numbers
+            if acquisition_num is not None:
+                series_data[series_uid]['acquisition_numbers'].add(acquisition_num)
+                
+                # Group files by acquisition
+                if acquisition_num not in series_data[series_uid]['files_by_acquisition']:
+                    series_data[series_uid]['files_by_acquisition'][acquisition_num] = []
+                
+                series_data[series_uid]['files_by_acquisition'][acquisition_num].append({
+                    'path': path,
+                    'instance_num': instance_num,
+                    'ds': ds
+                })
+            else:
+                # No acquisition number - treat as single acquisition
+                if 0 not in series_data[series_uid]['files_by_acquisition']:
+                    series_data[series_uid]['files_by_acquisition'][0] = []
+                
+                series_data[series_uid]['files_by_acquisition'][0].append({
+                    'path': path,
+                    'instance_num': instance_num,
+                    'ds': ds
+                })
+                
         except Exception as e:
-            log.error(f"Failed to read {path}: {e}")
+            log.error(f"Failed to analyze {path}: {e}")
     
-    # Sort files within each series by slice location
-    for series in series_dict.values():
-        paired = list(zip(series['files'], series['slice_locations']))
-        paired.sort(key=lambda x: x[1])
-        series['files'] = [p[0] for p in paired]
-        series['slice_locations'] = sorted(series['slice_locations'])
+    # Determine if each series is 4D
+    for series_uid, data in series_data.items():
+        num_acquisitions = len(data['files_by_acquisition'])
+        data['is_4d'] = num_acquisitions > 1
+        data['acquisition_numbers'] = sorted(data['acquisition_numbers'])
     
-    # Convert to list and sort by series number (handle None values)
+    return series_data
+
+def organize_by_series(file_paths):
+    """Organize DICOM files by SeriesInstanceUID, detecting 4D series"""
+    
+    # Analyze for 4D series
+    log.info("Analyzing DICOM files for 4D series...")
+    series_analysis = analyze_series_for_4d(file_paths)
+    
+    series_dict = {}
+    
+    # Process each series
+    for series_uid, analysis in series_analysis.items():
+        metadata = analysis['metadata']
+        
+        if analysis['is_4d']:
+            # 4D series detected - create ONE series entry with all time points
+            num_time_points = len(analysis['acquisition_numbers'])
+            log.info(f"4D series detected: {metadata['description']}")
+            log.info(f"  Time points: {num_time_points} (acquisitions: {analysis['acquisition_numbers']})")
+            
+            # Get metadata from first time point
+            first_acq = analysis['acquisition_numbers'][0]
+            first_files = analysis['files_by_acquisition'][first_acq]
+            first_ds = first_files[0]['ds']
+            first_path = first_files[0]['path']
+            
+            # Get image dimensions
+            try:
+                ds_full = dcmread(first_path, force=True)
+                if hasattr(ds_full, 'pixel_array'):
+                    rows, cols = ds_full.pixel_array.shape
+                else:
+                    rows = getattr(first_ds, 'Rows', 0)
+                    cols = getattr(first_ds, 'Columns', 0)
+            except:
+                rows = getattr(first_ds, 'Rows', 0)
+                cols = getattr(first_ds, 'Columns', 0)
+            
+            pixel_spacing = getattr(first_ds, 'PixelSpacing', [1.0, 1.0])
+            slice_thickness = getattr(first_ds, 'SliceThickness', 1.0)
+            slice_thickness = float(slice_thickness) if slice_thickness is not None else 1.0
+            
+            # Organize time points data
+            time_points_data = []
+            for acq_num in sorted(analysis['acquisition_numbers']):
+                files_info = analysis['files_by_acquisition'][acq_num]
+                files_info.sort(key=lambda x: x['instance_num'] if x['instance_num'] else 0)
+                
+                time_points_data.append({
+                    'acquisition_number': acq_num,
+                    'files': [f['path'] for f in files_info],
+                    'slice_count': len(files_info),
+                })
+            
+            # Collect ALL files from all time points for preview
+            all_files = []
+            for tp_data in time_points_data:
+                all_files.extend(tp_data['files'])
+            
+            # Create single series entry for 4D data
+            series_dict[series_uid] = {
+                'uid': series_uid,
+                'description': f"{metadata['description']} [4D - {num_time_points} timepoints]",
+                'modality': metadata['modality'],
+                'number': metadata['series_number'],
+                'files': all_files,  # ALL files from all time points for preview
+                'instance_count': len(all_files),
+                'rows': rows,
+                'cols': cols,
+                'pixel_spacing': [float(x) for x in pixel_spacing],
+                'slice_thickness': slice_thickness,
+                'window_center': float(getattr(first_ds, 'WindowCenter', 0)) if hasattr(first_ds, 'WindowCenter') else None,
+                'window_width': float(getattr(first_ds, 'WindowWidth', 0)) if hasattr(first_ds, 'WindowWidth') else None,
+                'slice_locations': [float(getattr(f['ds'], 'SliceLocation', f['instance_num'] or 0)) for f in first_files],
+                'is_4d': True,
+                'time_points': time_points_data,
+                'num_time_points': num_time_points,
+            }
+            
+            log.info(f"  Created 4D series with {num_time_points} time points")
+        
+        else:
+            # Regular series
+            # Get files from the single acquisition (key 0 or the only key)
+            acq_key = list(analysis['files_by_acquisition'].keys())[0]
+            files_info = analysis['files_by_acquisition'][acq_key]
+            
+            # Sort by instance number
+            files_info.sort(key=lambda x: x['instance_num'] if x['instance_num'] else 0)
+            
+            # Get metadata from first file
+            first_ds = files_info[0]['ds']
+            first_path = files_info[0]['path']
+            
+            # Get image dimensions
+            try:
+                ds_full = dcmread(first_path, force=True)
+                if hasattr(ds_full, 'pixel_array'):
+                    rows, cols = ds_full.pixel_array.shape
+                else:
+                    rows = getattr(first_ds, 'Rows', 0)
+                    cols = getattr(first_ds, 'Columns', 0)
+            except:
+                rows = getattr(first_ds, 'Rows', 0)
+                cols = getattr(first_ds, 'Columns', 0)
+            
+            pixel_spacing = getattr(first_ds, 'PixelSpacing', [1.0, 1.0])
+            slice_thickness = getattr(first_ds, 'SliceThickness', 1.0)
+            slice_thickness = float(slice_thickness) if slice_thickness is not None else 1.0
+            
+            series_dict[series_uid] = {
+                'uid': series_uid,
+                'description': metadata['description'],
+                'modality': metadata['modality'],
+                'number': metadata['series_number'],
+                'files': [f['path'] for f in files_info],
+                'instance_count': len(files_info),
+                'rows': rows,
+                'cols': cols,
+                'pixel_spacing': [float(x) for x in pixel_spacing],
+                'slice_thickness': slice_thickness,
+                'window_center': float(getattr(first_ds, 'WindowCenter', 0)) if hasattr(first_ds, 'WindowCenter') else None,
+                'window_width': float(getattr(first_ds, 'WindowWidth', 0)) if hasattr(first_ds, 'WindowWidth') else None,
+                'slice_locations': [float(getattr(f['ds'], 'SliceLocation', f['instance_num'] or 0)) for f in files_info],
+            }
+    
+    # Convert to list and sort by series number
     series_list = list(series_dict.values())
-    series_list.sort(key=lambda s: s['number'] if s['number'] is not None else 0)
+    series_list.sort(key=lambda s: (s['number'] if s['number'] is not None else 0, s['description']))
+    
+    log.info(f"Organized into {len(series_list)} series")
     
     return series_list
 
@@ -183,11 +321,17 @@ def load_slice(path):
     position = [float(x) for x in getattr(ds, 'ImagePositionPatient', [0.0, 0.0, 0.0])]
     orientation = [float(x) for x in getattr(ds, 'ImageOrientationPatient', [1.0, 0.0, 0.0, 0.0, 1.0, 0.0])]
     
+    slice_thickness = getattr(ds, 'SliceThickness', 1.0)
+    slice_thickness = float(slice_thickness) if slice_thickness is not None else 1.0
+    
+    slice_location = getattr(ds, 'SliceLocation', 0.0)
+    slice_location = float(slice_location) if slice_location is not None else 0.0
+    
     return {
         "pixels": pixels,
         "pixel_spacing": spacing,
-        "slice_thickness": float(getattr(ds, 'SliceThickness', 1.0)),
-        "slice_location": float(getattr(ds, 'SliceLocation', 0.0)),
+        "slice_thickness": slice_thickness,
+        "slice_location": slice_location,
         "instance_number": int(getattr(ds, 'InstanceNumber', 0)),
         "position": position,  # ImagePositionPatient
         "orientation": orientation,  # ImageOrientationPatient
@@ -317,6 +461,9 @@ def load_patient_from_folder(root_dir):
             window_width=series_dict.get('window_width'),
             file_paths=relative_paths,
             slice_locations=series_dict['slice_locations'],
+            is_4d=series_dict.get('is_4d', False),
+            time_points=series_dict.get('time_points', []),
+            num_time_points=series_dict.get('num_time_points', 0),
         )
         
         patient.series.append(series_info)

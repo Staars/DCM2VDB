@@ -127,7 +127,8 @@ class VIEW3D_PT_dicom_patient(Panel):
                     
                     # Preview button (always available)
                     action_row = box.row(align=True)
-                    op = action_row.operator(IMPORT_OT_dicom_preview_series.bl_idname, text="Preview", icon='IMAGE_DATA')
+                    preview_text = "Preview 4D" if series.is_4d else "Preview"
+                    op = action_row.operator(IMPORT_OT_dicom_preview_series.bl_idname, text=preview_text, icon='IMAGE_DATA')
                     op.series_uid = series.series_instance_uid
                     
                     box.separator()
@@ -336,14 +337,44 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
             series = series_list[scn.dicom_preview_series_index]
             layout.label(text=f"Series: {series.get('description', 'No Description')}", icon='IMAGE_DATA')
         
+        # 4D Time Point Navigation (if applicable)
+        if scn.dicom_preview_is_4d:
+            from .operators import IMAGE_OT_dicom_scroll_time_point
+            
+            box = layout.box()
+            box.label(text=f"Time Point: {scn.dicom_preview_time_point_index + 1} / {scn.dicom_preview_time_point_count}", icon='TIME')
+            
+            row = box.row(align=True)
+            op = row.operator(IMAGE_OT_dicom_scroll_time_point.bl_idname, text="First", icon='REW')
+            op.direction = -scn.dicom_preview_time_point_index
+            
+            op = row.operator(IMAGE_OT_dicom_scroll_time_point.bl_idname, text="", icon='TRIA_LEFT')
+            op.direction = -1
+            
+            op = row.operator(IMAGE_OT_dicom_scroll_time_point.bl_idname, text="", icon='TRIA_RIGHT')
+            op.direction = 1
+            
+            op = row.operator(IMAGE_OT_dicom_scroll_time_point.bl_idname, text="Last", icon='FF')
+            op.direction = scn.dicom_preview_time_point_count - scn.dicom_preview_time_point_index - 1
+        
         # Slice info
         box = layout.box()
-        box.label(text=f"Slice: {scn.dicom_preview_slice_index + 1} / {scn.dicom_preview_slice_count}")
+        if scn.dicom_preview_is_4d:
+            # Show slice within current time point
+            slices_per_tp = scn.dicom_preview_slices_per_time_point
+            current_tp = scn.dicom_preview_time_point_index
+            slice_in_tp = scn.dicom_preview_slice_index - (current_tp * slices_per_tp) + 1
+            box.label(text=f"Slice (in time point): {slice_in_tp} / {slices_per_tp}")
+        else:
+            box.label(text=f"Slice: {scn.dicom_preview_slice_index + 1} / {scn.dicom_preview_slice_count}")
         
         # Navigation buttons
         row = box.row(align=True)
         op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="First", icon='REW')
-        op.slice_index = 0
+        if scn.dicom_preview_is_4d:
+            op.slice_index = scn.dicom_preview_time_point_index * scn.dicom_preview_slices_per_time_point
+        else:
+            op.slice_index = 0
         
         op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="", icon='TRIA_LEFT')
         op.slice_index = max(0, scn.dicom_preview_slice_index - 1)
@@ -352,10 +383,13 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
         op.slice_index = min(scn.dicom_preview_slice_count - 1, scn.dicom_preview_slice_index + 1)
         
         op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="Last", icon='FF')
-        op.slice_index = scn.dicom_preview_slice_count - 1
+        if scn.dicom_preview_is_4d:
+            op.slice_index = (scn.dicom_preview_time_point_index + 1) * scn.dicom_preview_slices_per_time_point - 1
+        else:
+            op.slice_index = scn.dicom_preview_slice_count - 1
         
         # Quick jump
-        if scn.dicom_preview_slice_count > 20:
+        if scn.dicom_preview_slice_count > 20 and not scn.dicom_preview_is_4d:
             box.label(text="Quick Jump:")
             row = box.row(align=True)
             step = max(1, scn.dicom_preview_slice_count // 10)

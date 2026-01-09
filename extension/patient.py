@@ -52,6 +52,11 @@ class SeriesInfo:
     file_paths: List[str] = field(default_factory=list)
     slice_locations: List[float] = field(default_factory=list)
     
+    # 4D/Temporal Data
+    is_4d: bool = False  # Is this a 4D temporal series?
+    time_points: List[dict] = field(default_factory=list)  # List of time point data
+    num_time_points: int = 0  # Number of time points
+    
     # Visualization State
     is_loaded: bool = False  # Has VDB been generated?
     is_visible: bool = False  # Is volume visible in viewport?

@@ -154,6 +154,17 @@ def register_scene_props():
         min=0
     )
     bpy.types.Scene.dicom_preview_slice_count = IntProperty(default=0)
+    
+    # 4D preview properties
+    bpy.types.Scene.dicom_preview_is_4d = BoolProperty(default=False)
+    bpy.types.Scene.dicom_preview_time_point_index = IntProperty(
+        name="Time Point",
+        default=0,
+        min=0
+    )
+    bpy.types.Scene.dicom_preview_time_point_count = IntProperty(default=0)
+    bpy.types.Scene.dicom_preview_slices_per_time_point = IntProperty(default=0)
+    
     bpy.types.Scene.dicom_show_series_list = BoolProperty(
         name="Show Series List",
         default=True,
@@ -353,6 +364,10 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_preview_series_index
     del bpy.types.Scene.dicom_preview_slice_index
     del bpy.types.Scene.dicom_preview_slice_count
+    del bpy.types.Scene.dicom_preview_is_4d
+    del bpy.types.Scene.dicom_preview_time_point_index
+    del bpy.types.Scene.dicom_preview_time_point_count
+    del bpy.types.Scene.dicom_preview_slices_per_time_point
     del bpy.types.Scene.dicom_show_series_list
     del bpy.types.Scene.dicom_show_spatial_info
     del bpy.types.Scene.dicom_show_tissue_volumes
