@@ -177,16 +177,6 @@ class VIEW3D_PT_dicom_patient(Panel):
             button_text = f"Visualization {modality}"
             op = row.operator("import.dicom_set_tool", text=button_text, icon='SHADING_RENDERED')
             op.tool = 'VISUALIZATION'
-            
-            # Future tools (disabled)
-            box.label(text="Coming Soon:", icon='TIME')
-            col = box.column(align=True)
-            col.enabled = False
-            col.operator("import.dicom_set_tool", text="Measurement", icon='DRIVER_DISTANCE')
-            col.operator("import.dicom_set_tool", text="Segmentation", icon='MOD_MASK')
-            col.operator("import.dicom_set_tool", text="Registration", icon='ORIENTATION_GIMBAL')
-            col.operator("import.dicom_set_tool", text="Export", icon='EXPORT')
-            col.operator("import.dicom_set_tool", text="Analysis", icon='GRAPH')
         else:
             # Show active tool and change button
             box = layout.box()

@@ -209,11 +209,6 @@ def register_scene_props():
         items=[
             ('NONE', "None", "No tool selected", 'QUESTION', 0),
             ('VISUALIZATION', "Visualization", "View and render volumes", 'SHADING_RENDERED', 1),
-            ('MEASUREMENT', "Measurement", "Measure distances, angles, volumes (Coming Soon)", 'DRIVER_DISTANCE', 2),
-            ('SEGMENTATION', "Segmentation", "Isolate anatomical structures (Coming Soon)", 'MOD_MASK', 3),
-            ('REGISTRATION', "Registration", "Align multiple scans (Coming Soon)", 'ORIENTATION_GIMBAL', 4),
-            ('EXPORT', "Export", "Export data and meshes (Coming Soon)", 'EXPORT', 5),
-            ('ANALYSIS', "Analysis", "Density analysis and statistics (Coming Soon)", 'GRAPH', 6),
         ],
         default='NONE'
     )
