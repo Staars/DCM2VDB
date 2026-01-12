@@ -1,0 +1,32 @@
+{
+  "header": {
+    "name": "knee_morphometric_profile",
+    "label": "Knee Morphometric Profile",
+    "description": "Knee rotational and alignment measurements",
+    "modality": "CT",
+    "version": "1.0"
+  },
+  "measurements": [
+    {
+      "id": "femoral_anteversion",
+      "label": "Femoral Anteversion",
+      "type": "angle",
+      "points_required": 3,
+      "description": "Angle between femoral neck axis and posterior condylar axis"
+    },
+    {
+      "id": "tt_tg_distance",
+      "label": "TT–TG Distance",
+      "type": "distance",
+      "points_required": 2,
+      "description": "Tibial tuberosity to trochlear groove distance"
+    },
+    {
+      "id": "tibial_torsion",
+      "label": "Tibial Torsion",
+      "type": "angle",
+      "points_required": 3,
+      "description": "Angle between tibial plateau axis and malleolar axis"
+    }
+  ]
+}
