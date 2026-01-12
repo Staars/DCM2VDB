@@ -151,25 +151,43 @@ def _create_4d_volume_sequence(time_points_data, series_number):
     log.debug(f"4D Volume positioned at: {vol_obj.location}")
     log.debug(f"4D Volume rotation: {vol_obj.rotation_euler}")
     
-    # 13. Apply material with modality detection (SAME as regular volume)
+    # 13. Apply material with user-selected preset
     modality = first_slices[0]["ds"].Modality if hasattr(first_slices[0]["ds"], "Modality") else "CT"
     series_desc = first_slices[0]["ds"].SeriesDescription if hasattr(first_slices[0]["ds"], "SeriesDescription") else ""
     vol_min = first_vol_raw.min()
     vol_max = first_vol_raw.max()
-    create_volume_material(vol_obj, vol_min, vol_max, modality=modality, series_description=series_desc)
+    
+    # Use the user-selected preset from the dropdown
+    preset_name = bpy.context.scene.dicom_material_preset
+    create_volume_material(vol_obj, vol_min, vol_max, preset_name=preset_name, modality=modality, series_description=series_desc)
     
     # Update tissue alphas to match the detected preset (SAME as regular volume)
     from .material_presets import get_preset_for_modality
     from .properties import initialize_tissue_alphas
     
     detected_preset = get_preset_for_modality(modality, series_desc)
-    current_preset = bpy.context.scene.dicom_active_material_preset
     
-    if detected_preset != current_preset or len(bpy.context.scene.dicom_tissue_alphas) == 0:
-        log.info(f"Updating tissue alphas from '{current_preset}' to '{detected_preset}'")
-        initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
+    # Only auto-set preset if user hasn't manually selected one
+    # Check if current preset matches the modality (if it's a CT preset for CT data, user chose it)
+    current_preset = bpy.context.scene.dicom_material_preset
+    current_is_ct = current_preset.startswith('ct_')
+    current_is_mri = current_preset.startswith('mri_')
+    modality_matches = (modality == 'CT' and current_is_ct) or (modality == 'MR' and current_is_mri)
+    
+    if not modality_matches:
+        # Modality doesn't match, so auto-detect
+        log.info(f"Auto-detected preset: {detected_preset} (was: {current_preset})")
+        bpy.context.scene.dicom_material_preset = detected_preset
+        bpy.context.scene.dicom_active_material_preset = detected_preset
     else:
-        log.debug(f"Tissue alphas already match preset '{detected_preset}'")
+        # User has selected a preset for this modality, keep it
+        log.info(f"Using user-selected preset: {current_preset}")
+        detected_preset = current_preset
+        bpy.context.scene.dicom_active_material_preset = detected_preset
+    
+    # Initialize tissue alphas for the preset
+    if len(bpy.context.scene.dicom_tissue_alphas) == 0:
+        initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
     
     # 14. Save first time point data for measurements (SAME as regular volume)
     unique_id = str(uuid.uuid4())[:8]
@@ -466,27 +484,44 @@ def create_volume(slices, series_number=1, time_points_data=None):
     expected_dims = (width * spacing_meters[0], height * spacing_meters[1], depth * spacing_meters[2])
     log.debug(f"Expected dimensions (meters): {expected_dims}")
     
-    # Create volume material with modality detection
+    # Create volume material with user-selected preset
     series_desc = slices[0]["ds"].SeriesDescription if hasattr(slices[0]["ds"], "SeriesDescription") else ""
-    create_volume_material(vol_obj, vol_min, vol_max, modality=modality, series_description=series_desc)
+    
+    # Use the user-selected preset from the dropdown
+    preset_name = bpy.context.scene.dicom_material_preset
+    create_volume_material(vol_obj, vol_min, vol_max, preset_name=preset_name, modality=modality, series_description=series_desc)
     
     # Update tissue alphas to match the detected preset
     from .material_presets import get_preset_for_modality
     from .properties import initialize_tissue_alphas
     
     detected_preset = get_preset_for_modality(modality, series_desc)
-    current_preset = bpy.context.scene.dicom_active_material_preset
     
-    if detected_preset != current_preset or len(bpy.context.scene.dicom_tissue_alphas) == 0:
-        log.info(f"Updating tissue alphas from '{current_preset}' to '{detected_preset}'")
-        initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
+    # Only auto-set preset if user hasn't manually selected one
+    # Check if current preset matches the modality (if it's a CT preset for CT data, user chose it)
+    current_preset = bpy.context.scene.dicom_material_preset
+    current_is_ct = current_preset.startswith('ct_')
+    current_is_mri = current_preset.startswith('mri_')
+    modality_matches = (modality == 'CT' and current_is_ct) or (modality == 'MR' and current_is_mri)
+    
+    if not modality_matches:
+        # Modality doesn't match, so auto-detect
+        log.info(f"Auto-detected preset: {detected_preset} (was: {current_preset})")
+        bpy.context.scene.dicom_material_preset = detected_preset
+        bpy.context.scene.dicom_active_material_preset = detected_preset
     else:
-        log.debug(f"Tissue alphas already match preset '{detected_preset}'")
+        # User has selected a preset for this modality, keep it
+        log.info(f"Using user-selected preset: {current_preset}")
+        detected_preset = current_preset
+        bpy.context.scene.dicom_active_material_preset = detected_preset
+    
+    # Initialize tissue alphas for the preset
+    if len(bpy.context.scene.dicom_tissue_alphas) == 0:
+        initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
     
     # Create meshes based on preset definitions
-    from .material_presets import load_preset, get_preset_for_modality
-    preset_name = get_preset_for_modality(modality, series_desc)
-    preset = load_preset(preset_name)
+    from .material_presets import load_preset
+    preset = load_preset(detected_preset)
     
     if preset and preset.meshes:
         log.info("=" * 60)

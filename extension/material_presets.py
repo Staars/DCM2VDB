@@ -87,6 +87,9 @@ def get_preset_for_modality(modality, series_description=""):
     series_desc = series_description.upper() if series_description else ""
     
     if modality == "CT":
+        # Check series description for brain/head scans
+        if any(keyword in series_desc for keyword in ["BRAIN", "HEAD", "CRANIAL", "CEREBRAL", "SKULL"]):
+            return "ct_brain"
         return "ct_standard"
     elif modality == "MR":
         # Check series description for T1/T2/etc.

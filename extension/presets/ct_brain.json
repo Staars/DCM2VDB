@@ -1,0 +1,105 @@
+{
+  "header": {
+    "name": "CT_Brain",
+    "description": "CT brain imaging with CSF, brain tissue, blood, and contrast media",
+    "modality": "CT",
+    "version": "1.0"
+  },
+  "volume": {
+    "hu_range": {
+      "min": -1024,
+      "max": 3071
+    },
+    "air_threshold": -200,
+    "density_multiplier": 600,
+    "tissues": [
+      {
+        "name": "air",
+        "label": "Air",
+        "hu_min": -1024,
+        "hu_max": -960,
+        "color_start_rgb": [0.0, 0.0, 0.0],
+        "color_end_rgb": [0.0, 0.0, 0.0],
+        "alpha_default": 0.0,
+        "order": 1
+      },
+      {
+        "name": "fat",
+        "label": "Fat",
+        "hu_min": -120,
+        "hu_max": -90,
+        "color_start_rgb": [0.776, 0.565, 0.018],
+        "color_end_rgb": [0.776, 0.565, 0.018],
+        "alpha_default": 0.059,
+        "order": 2
+      },
+      {
+        "name": "liquor",
+        "label": "Liquor/CSF",
+        "hu_min": 0,
+        "hu_max": 15,
+        "color_start_rgb": [0.1, 0.4, 0.8],
+        "color_end_rgb": [0.2, 0.5, 0.9],
+        "alpha_default": 0.03,
+        "order": 3
+      },
+      {
+        "name": "brain",
+        "label": "Brain",
+        "hu_min": 20,
+        "hu_max": 49,
+        "color_start_rgb": [0.8, 0.6, 0.5],
+        "color_end_rgb": [0.9, 0.7, 0.6],
+        "alpha_default": 0.8,
+        "order": 4
+      },
+      {
+        "name": "blood",
+        "label": "Blood",
+        "hu_min": 50,
+        "hu_max": 70,
+        "color_start_rgb": [0.7, 0.0, 0.0],
+        "color_end_rgb": [0.9, 0.1, 0.1],
+        "alpha_default": 1.0,
+        "order": 5
+      },
+      {
+        "name": "contrast",
+        "label": "Contrast Media",
+        "hu_min": 80,
+        "hu_max": 299,
+        "color_start_rgb": [0.9, 0.9, 0.95],
+        "color_end_rgb": [1.0, 1.0, 1.0],
+        "alpha_default": 1.0,
+        "order": 6
+      },
+      {
+        "name": "bone",
+        "label": "Bone",
+        "hu_min": 300,
+        "hu_max": 2000,
+        "color_start_rgb": [0.9, 0.92, 0.65],
+        "color_end_rgb": [0.9, 0.92, 0.65],
+        "alpha_default": 1.0,
+        "order": 7
+      },
+      {
+        "name": "metal",
+        "label": "Metal",
+        "hu_min": 2001,
+        "hu_max": 3071,
+        "color_start_rgb": [0.95, 0.92, 0.95],
+        "color_end_rgb": [0.95, 0.92, 0.95],
+        "alpha_default": 1.0,
+        "order": 8
+      }
+    ]
+  },
+  "mesh": [
+    {
+      "name": "bone",
+      "label": "Bone",
+      "threshold": 400
+    }
+  ]
+}

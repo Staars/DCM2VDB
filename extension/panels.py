@@ -169,6 +169,13 @@ class VIEW3D_PT_dicom_patient(Panel):
             row = center_box.row()
             row.prop(scn, "center_volume_at_origin", text="Center at Origin")
             
+            # Material preset selection
+            preset_box = box.box()
+            preset_box.label(text="Material Preset", icon='MATERIAL')
+            
+            row = preset_box.row()
+            row.prop(scn, "dicom_material_preset", text="")
+            
             box.separator()
             
             # Visualization tool (available)
