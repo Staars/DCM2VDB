@@ -107,10 +107,13 @@ if "bpy" in locals():
         importlib.reload(volume)
     if "preview" in locals():
         importlib.reload(preview)
+    if "measurement_tools" in locals():
+        importlib.reload(measurement_tools)
 
 from . import properties
 from . import operators
 from . import panels
+from . import measurement_tools
 
 # Keymap for mouse wheel scrolling in Image Editor
 addon_keymaps = []
@@ -120,6 +123,7 @@ def register():
     properties.register()
     operators.register()
     panels.register()
+    measurement_tools.register()
     
     # Add keymap for scrolling
     wm = bpy.context.window_manager
@@ -144,6 +148,7 @@ def unregister():
     addon_keymaps.clear()
     
     # Unregister all classes
+    measurement_tools.unregister()
     panels.unregister()
     operators.unregister()
     properties.unregister()

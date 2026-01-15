@@ -10,22 +10,25 @@
     {
       "id": "femoral_anteversion",
       "label": "Femoral Anteversion",
-      "type": "angle",
-      "points_required": 3,
+      "type": "angle_2d",
+      "projection_plane": "axial",
+      "points_required": 4,
       "description": "Angle between femoral neck axis and posterior condylar axis"
     },
     {
       "id": "tt_tg_distance",
       "label": "TT–TG Distance",
-      "type": "distance",
+      "type": "distance_2d",
+      "projection_plane": "axial",
       "points_required": 2,
       "description": "Tibial tuberosity to trochlear groove distance"
     },
     {
       "id": "tibial_torsion",
       "label": "Tibial Torsion",
-      "type": "angle",
-      "points_required": 3,
+      "type": "angle_2d",
+      "projection_plane": "axial",
+      "points_required": 4,
       "description": "Angle between tibial plateau axis and malleolar axis"
     }
   ]
