@@ -353,7 +353,7 @@ def get_tissue_thresholds_from_preset(preset_name="ct_standard"):
         'bone': {'min': 400, 'max': 1000}
     }
     """
-    from .material_presets import load_preset
+    from .presets.material_presets import load_preset
     
     preset = load_preset(preset_name)
     if not preset:
@@ -375,7 +375,7 @@ def initialize_tissue_alphas(context, preset_name="ct_standard", silent=False):
         preset_name: Name of preset to load
         silent: If True, suppress update callbacks during initialization
     """
-    from .material_presets import load_preset
+    from .presets.material_presets import load_preset
     
     preset = load_preset(preset_name)
     if not preset:

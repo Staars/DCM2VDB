@@ -855,7 +855,7 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             context.scene.dicom_patient_data = patient.to_json()
             
             # Automatically calculate tissue volumes for this series
-            from .measurements import calculate_and_store_tissue_volumes
+            from .measurements.tissue_volumes import calculate_and_store_tissue_volumes
             calculate_and_store_tissue_volumes(context, series)
             
             # Save updated measurements
@@ -1030,7 +1030,7 @@ class IMPORT_OT_dicom_set_tool(Operator):
                             patient.volume_objects[series.series_instance_uid] = vol_obj.name
                             
                             # Calculate measurements for 4D (uses first time point)
-                            from .measurements import calculate_and_store_tissue_volumes
+                            from .measurements.tissue_volumes import calculate_and_store_tissue_volumes
                             calculate_and_store_tissue_volumes(context, series)
                             
                             log.info(f"Auto-visualized 4D series {series.series_number}")
@@ -1061,7 +1061,7 @@ class IMPORT_OT_dicom_set_tool(Operator):
                                 patient.volume_objects[series.series_instance_uid] = vol_obj.name
                                 
                                 # Calculate measurements
-                                from .measurements import calculate_and_store_tissue_volumes
+                                from .measurements.tissue_volumes import calculate_and_store_tissue_volumes
                                 calculate_and_store_tissue_volumes(context, series)
                                 
                                 log.info(f"Auto-visualized series {series.series_number}")
@@ -1405,7 +1405,7 @@ class IMPORT_OT_dicom_calculate_volume(Operator):
     tissue_type: StringProperty()  # 'fat', 'fluid', 'soft'
     
     def execute(self, context):
-        from .measurements import calculate_tissue_volume
+        from .measurements.tissue_volumes import calculate_tissue_volume
         import json
         
         scn = context.scene

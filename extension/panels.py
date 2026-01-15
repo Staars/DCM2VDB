@@ -265,7 +265,7 @@ class VIEW3D_PT_dicom_visualization(Panel):
                             col.label(text=f"Series {series.series_number}:", icon='RENDERLAYERS')
                             
                             # Load preset to get tissue labels
-                            from .material_presets import load_preset
+                            from .presets.material_presets import load_preset
                             preset = load_preset(scn.dicom_active_material_preset)
                             
                             # Create tissue name -> label mapping

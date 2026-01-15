@@ -162,7 +162,7 @@ def _create_4d_volume_sequence(time_points_data, series_number):
     create_volume_material(vol_obj, vol_min, vol_max, preset_name=preset_name, modality=modality, series_description=series_desc)
     
     # Update tissue alphas to match the detected preset (SAME as regular volume)
-    from .material_presets import get_preset_for_modality
+    from .presets.material_presets import get_preset_for_modality
     from .properties import initialize_tissue_alphas
     
     detected_preset = get_preset_for_modality(modality, series_desc)
@@ -492,7 +492,7 @@ def create_volume(slices, series_number=1, time_points_data=None):
     create_volume_material(vol_obj, vol_min, vol_max, preset_name=preset_name, modality=modality, series_description=series_desc)
     
     # Update tissue alphas to match the detected preset
-    from .material_presets import get_preset_for_modality
+    from .presets.material_presets import get_preset_for_modality
     from .properties import initialize_tissue_alphas
     
     detected_preset = get_preset_for_modality(modality, series_desc)
@@ -520,7 +520,7 @@ def create_volume(slices, series_number=1, time_points_data=None):
         initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
     
     # Create meshes based on preset definitions
-    from .material_presets import load_preset
+    from .presets.material_presets import load_preset
     preset = load_preset(detected_preset)
     
     if preset and preset.meshes:
