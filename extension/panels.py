@@ -287,6 +287,27 @@ class VIEW3D_PT_dicom_visualization(Panel):
             
             layout.separator()
         
+        # Bake bone meshes button
+        # Check if there are any bone objects with geometry nodes
+        has_bone_objects = False
+        for obj in bpy.data.objects:
+            if 'Bone' in obj.name:
+                for mod in obj.modifiers:
+                    if mod.type == 'NODES':
+                        has_bone_objects = True
+                        break
+                if has_bone_objects:
+                    break
+        
+        if has_bone_objects:
+            box = layout.box()
+            box.label(text="Mesh Tools:", icon='MESH_DATA')
+            row = box.row()
+            row.scale_y = 1.2
+            row.operator("import.dicom_bake_bone_mesh", text="Bake Bone Meshes", icon='MESH_CUBE')
+            box.label(text="Convert geometry nodes to real mesh", icon='INFO')
+            layout.separator()
+        
         # Tool-specific actions for each series (ONLY SELECTED SERIES)
         groups = patient.get_series_by_frame_of_reference()
         

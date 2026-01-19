@@ -1514,6 +1514,59 @@ class IMPORT_OT_dicom_reload_patient(Operator):
             return {'CANCELLED'}
 
 
+class IMPORT_OT_dicom_bake_bone_mesh(Operator):
+    """Convert geometry nodes bone mesh to real mesh"""
+    bl_idname = "import.dicom_bake_bone_mesh"
+    bl_label = "Bake Bone Meshes"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        # Find all bone objects with geometry nodes
+        bone_objects = []
+        for obj in bpy.data.objects:
+            if 'Bone' in obj.name:
+                for mod in obj.modifiers:
+                    if mod.type == 'NODES':
+                        bone_objects.append(obj)
+                        break
+        
+        if not bone_objects:
+            self.report({'WARNING'}, "No bone objects with geometry nodes found")
+            return {'CANCELLED'}
+        
+        # Deselect all
+        bpy.ops.object.select_all(action='DESELECT')
+        
+        # Select bone objects
+        for obj in bone_objects:
+            obj.select_set(True)
+        
+        # Set one as active
+        context.view_layer.objects.active = bone_objects[0]
+        
+        # Call Blender's built-in operator
+        try:
+            result = bpy.ops.object.visual_geometry_to_objects()
+            
+            if result == {'FINISHED'}:
+                self.report({'INFO'}, f"Baked {len(bone_objects)} bone mesh(es)")
+                log.info(f"Successfully baked {len(bone_objects)} bone objects")
+                return {'FINISHED'}
+            else:
+                self.report({'WARNING'}, "Bake operation did not complete successfully")
+                return {'CANCELLED'}
+                
+        except AttributeError:
+            # Operator doesn't exist in this Blender version
+            self.report({'ERROR'}, "Visual Geometry to Objects operator not available in this Blender version")
+            log.error("bpy.ops.object.visual_geometry_to_objects not found")
+            return {'CANCELLED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to bake: {e}")
+            log.error(f"Bake error: {e}")
+            return {'CANCELLED'}
+
+
 classes = (
     IMPORT_OT_dicom_load_patient,
     IMPORT_OT_dicom_visualize_series,
@@ -1523,6 +1576,7 @@ classes = (
     IMPORT_OT_dicom_toggle_display_mode,
     IMPORT_OT_dicom_calculate_volume,
     IMPORT_OT_dicom_reload_patient,
+    IMPORT_OT_dicom_bake_bone_mesh,
     IMPORT_OT_dicom_scan,
     IMPORT_OT_dicom_preview,
     IMPORT_OT_dicom_preview_popup,
