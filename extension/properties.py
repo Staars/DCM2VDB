@@ -57,6 +57,10 @@ def update_material_preset(context):
             create_volume_material(vol_obj, vol_min, vol_max, preset_name=preset_name, modality=modality, series_description="")
         
         log.info(f"Material recreated: {mat_name}")
+    
+    # Update geometry nodes HU thresholds
+    from .geometry_nodes import update_geometry_nodes_preset
+    update_geometry_nodes_preset(context, preset_name)
 
 def update_tissue_alpha_dynamic(self, context):
     """Update alpha values in volume material color ramp dynamically based on preset"""

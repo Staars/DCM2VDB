@@ -227,6 +227,15 @@ class VIEW3D_PT_dicom_visualization(Panel):
         
         if volume_material:
             layout.separator()
+            
+            # Material Preset Selector
+            preset_box = layout.box()
+            preset_box.label(text="Material Preset:", icon='MATERIAL')
+            row = preset_box.row()
+            row.prop(scn, "dicom_material_preset", text="")
+            
+            layout.separator()
+            
             box = layout.box()
             box.label(text="Tissue Opacity:", icon='SHADING_RENDERED')
             
@@ -305,7 +314,6 @@ class VIEW3D_PT_dicom_visualization(Panel):
             row = box.row()
             row.scale_y = 1.2
             row.operator("import.dicom_bake_bone_mesh", text="Bake Bone Meshes", icon='MESH_CUBE')
-            box.label(text="Convert geometry nodes to real mesh", icon='INFO')
             layout.separator()
         
         # Tool-specific actions for each series (ONLY SELECTED SERIES)

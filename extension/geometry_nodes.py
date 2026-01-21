@@ -6,6 +6,65 @@ from .utils import SimpleLogger
 log = SimpleLogger()
 
 
+def update_geometry_nodes_preset(context, preset_name):
+    """Update geometry nodes HU thresholds when preset changes
+    
+    Args:
+        context: Blender context
+        preset_name: Name of new preset to apply
+    """
+    from .presets.material_presets import load_preset
+    
+    preset = load_preset(preset_name)
+    if not preset or not preset.meshes:
+        log.debug(f"No mesh definitions in preset {preset_name}")
+        return
+    
+    # Create mapping of mesh name to HU threshold
+    mesh_thresholds = {}
+    for mesh_def in preset.meshes:
+        mesh_name = mesh_def.get('name', '')
+        mesh_threshold = mesh_def.get('threshold', 0)
+        mesh_thresholds[mesh_name] = mesh_threshold
+    
+    log.info(f"Updating geometry nodes for preset: {preset_name}")
+    
+    # Find all objects with geometry nodes modifiers
+    updated_count = 0
+    for obj in bpy.data.objects:
+        for mod in obj.modifiers:
+            if mod.type == 'NODES' and mod.node_group:
+                # Check if this is a tissue mesh modifier
+                node_group = mod.node_group
+                
+                # Try to find the tissue name from node group name (e.g., "CT_Bone_Mesh")
+                tissue_name = None
+                for mesh_name in mesh_thresholds.keys():
+                    if mesh_name in node_group.name:
+                        tissue_name = mesh_name
+                        break
+                
+                if not tissue_name:
+                    continue
+                
+                new_threshold = mesh_thresholds[tissue_name]
+                
+                # Find the first math node (subtract node with HU threshold)
+                for node in node_group.nodes:
+                    if node.type == 'MATH' and node.operation == 'SUBTRACT':
+                        if node.label == "HU Offset":
+                            old_threshold = node.inputs[0].default_value
+                            node.inputs[0].default_value = new_threshold
+                            log.info(f"  Updated {obj.name}: {old_threshold} → {new_threshold} HU")
+                            updated_count += 1
+                            break
+    
+    if updated_count > 0:
+        log.info(f"Updated {updated_count} geometry node(s) with new HU thresholds")
+    else:
+        log.debug("No geometry nodes found to update")
+
+
 def create_tissue_mesh_geonodes(vol_obj, tissue_name, threshold_min, threshold_max, material=None):
     """Create a Geometry Nodes modifier to extract mesh at threshold (simplified - no boolean)"""
     
