@@ -10,14 +10,14 @@ def create_tissue_mesh_geonodes(vol_obj, tissue_name, threshold_min, threshold_m
     """Create a Geometry Nodes modifier to extract mesh at threshold (simplified - no boolean)"""
     
     try:
-        # Convert HU threshold to normalized 0-1 range
+        # Get HU range for normalization
         scn = bpy.context.scene
-        hu_min = scn.dicom_volume_hu_min
-        hu_max = scn.dicom_volume_hu_max
-        threshold_normalized = (threshold_min - hu_min) / (hu_max - hu_min)
+        hu_min = -1024
+        hu_max = 3071
+        hu_range = hu_max - hu_min
         
         log.info(f"Creating Geometry Nodes for {tissue_name}...")
-        log.info(f"  HU threshold: {threshold_min} -> normalized: {threshold_normalized:.6f}")
+        log.info(f"  HU threshold: {threshold_min} (range: {hu_min} to {hu_max})")
         
         # Add geometry nodes modifier
         mod = vol_obj.modifiers.new(name=f"{tissue_name}_Mesh", type='NODES')
@@ -31,20 +31,33 @@ def create_tissue_mesh_geonodes(vol_obj, tissue_name, threshold_min, threshold_m
         links = node_group.links
         
         group_input = nodes.new('NodeGroupInput')
-        group_input.location = (-400, 0)
+        group_input.location = (-600, 0)
         
         group_output = nodes.new('NodeGroupOutput')
-        group_output.location = (400, 0)
+        group_output.location = (600, 0)
         
-        # Volume to Mesh node (simple - just lower threshold)
+        # Math node 1: Subtract hu_min (HU → offset HU)
+        math_subtract = nodes.new('ShaderNodeMath')
+        math_subtract.operation = 'SUBTRACT'
+        math_subtract.location = (-200, 0)
+        math_subtract.label = "HU Offset"
+        math_subtract.inputs[0].default_value = threshold_min  # HU threshold
+        math_subtract.inputs[1].default_value = hu_min  # Subtract minimum
+        
+        # Math node 2: Divide by range (offset HU → normalized 0-1)
+        math_divide = nodes.new('ShaderNodeMath')
+        math_divide.operation = 'DIVIDE'
+        math_divide.location = (0, 0)
+        math_divide.label = "Normalize"
+        math_divide.inputs[1].default_value = hu_range  # Divide by range
+        
+        # Volume to Mesh node
         vol_to_mesh = nodes.new('GeometryNodeVolumeToMesh')
-        vol_to_mesh.location = (0, 0)
-        # resolution_mode removed in Blender 5.0
-        vol_to_mesh.inputs['Threshold'].default_value = threshold_normalized
+        vol_to_mesh.location = (200, 0)
         
         # Set Material node (if provided)
         set_material = nodes.new('GeometryNodeSetMaterial')
-        set_material.location = (200, 0)
+        set_material.location = (400, 0)
         if material:
             set_material.inputs['Material'].default_value = material
         
@@ -65,12 +78,18 @@ def create_tissue_mesh_geonodes(vol_obj, tissue_name, threshold_min, threshold_m
                 node_group.outputs.new('NodeSocketGeometry', 'Geometry')
                 node_group.inputs.new('NodeSocketGeometry', 'Geometry')
         
-        # Connect nodes (simple path - no boolean)
+        # Connect nodes: Input → Volume to Mesh → Math nodes → Set Material → Output
         links.new(group_input.outputs[0], vol_to_mesh.inputs['Volume'])
+        
+        # Connect math nodes for threshold calculation
+        links.new(math_subtract.outputs[0], math_divide.inputs[0])  # Subtract → Divide
+        links.new(math_divide.outputs[0], vol_to_mesh.inputs['Threshold'])  # Divide → Volume to Mesh
+        
+        # Connect mesh output
         links.new(vol_to_mesh.outputs['Mesh'], set_material.inputs['Geometry'])
         links.new(set_material.outputs['Geometry'], group_output.inputs[0])
         
-        log.info(f"Created simple Geometry Nodes: {tissue_name} (threshold: {threshold_min} HU)")
+        log.info(f"Created Geometry Nodes with math conversion: {tissue_name} (HU: {threshold_min})")
         
         return mod
         
