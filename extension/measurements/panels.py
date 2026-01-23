@@ -53,52 +53,83 @@ class VIEW3D_PT_dicom_measurements(Panel):
             row = box.row()
             row.operator("dicom.clear_measurements", text="Clear All", icon='X')
         
-        # Measurements list
-        if len(scn.dicom_measurements) > 0:
+        # Landmarks list
+        if len(scn.dicom_landmarks) > 0:
             layout.separator()
             box = layout.box()
-            box.label(text="Measurements:", icon='TRACKING')
+            box.label(text="Anatomical Landmarks:", icon='EMPTY_AXIS')
             
-            for idx, measurement in enumerate(scn.dicom_measurements):
-                # Measurement header
+            for idx, landmark in enumerate(scn.dicom_landmarks):
+                # Landmark row
                 row = box.row(align=True)
                 
                 # Status icon
-                if measurement.status == 'COMPLETED':
+                if landmark.is_placed:
                     icon = 'CHECKMARK'
-                elif measurement.status == 'IN_PROGRESS':
-                    icon = 'PLUS'
                 else:
                     icon = 'RADIOBUT_OFF'
                 
                 row.label(text="", icon=icon)
-                row.label(text=measurement.label)
+                row.label(text=landmark.label)
                 
-                # Capture button
-                if measurement.status != 'COMPLETED':
+                # Assign button
+                if not landmark.is_placed:
                     op = row.operator(
-                        "dicom.capture_measurement_point",
+                        "dicom.assign_landmark",
                         text="",
                         icon='CURSOR'
                     )
-                    op.measurement_index = idx
+                    op.landmark_index = idx
+                else:
+                    # Clear button
+                    op = row.operator(
+                        "dicom.clear_landmark",
+                        text="",
+                        icon='X'
+                    )
+                    op.landmark_index = idx
                 
-                # Show progress
-                points_captured = len(measurement.points)
-                points_required = measurement.points_required
-                
-                sub_row = box.row()
-                sub_row.label(text=f"  Points: {points_captured}/{points_required}")
-                
-                # Show result if completed
-                if measurement.status == 'COMPLETED':
-                    result_row = box.row()
-                    result_row.label(text=f"  Result: {measurement.value:.2f} {measurement.unit}")
-                
-                box.separator()
+                # Show coordinates if placed
+                if landmark.is_placed:
+                    coord_row = box.row()
+                    coord_row.label(text=f"  ({landmark.x:.1f}, {landmark.y:.1f}, {landmark.z:.1f}) mm")
             
-            # Export button
-            layout.separator()
-            row = layout.row()
-            row.scale_y = 1.5
-            row.operator("dicom.export_measurements_csv", text="Export to CSV", icon='EXPORT')
+            # Measurements results
+            if len(scn.dicom_measurements) > 0:
+                layout.separator()
+                box = layout.box()
+                box.label(text="Measurements:", icon='TRACKING')
+                
+                for measurement in scn.dicom_measurements:
+                    row = box.row()
+                    
+                    # Status icon
+                    if measurement.status == 'COMPLETED':
+                        icon = 'CHECKMARK'
+                        row.label(text="", icon=icon)
+                        row.label(text=measurement.label)
+                        
+                        # Show result
+                        result_row = box.row()
+                        result_row.label(text=f"  {measurement.value:.2f} {measurement.unit}")
+                    else:
+                        icon = 'RADIOBUT_OFF'
+                        row.label(text="", icon=icon)
+                        row.label(text=measurement.label)
+                        
+                        # Show which landmarks are needed
+                        landmark_ids = measurement.landmark_ids.split(',')
+                        placed_count = sum(1 for lm_id in landmark_ids 
+                                         if any(lm.landmark_id == lm_id and lm.is_placed 
+                                               for lm in scn.dicom_landmarks))
+                        
+                        status_row = box.row()
+                        status_row.label(text=f"  Landmarks: {placed_count}/{len(landmark_ids)}")
+                    
+                    box.separator()
+                
+                # Export button
+                layout.separator()
+                row = layout.row()
+                row.scale_y = 1.5
+                row.operator("dicom.export_measurements_csv", text="Export to CSV", icon='EXPORT')

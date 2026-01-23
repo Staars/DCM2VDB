@@ -199,3 +199,65 @@ def sample_hu_value(point: Tuple[float, float, float],
     
     log.debug(f"HU sampling at {point}: {hu_value:.1f} HU")
     return float(hu_value)
+
+
+def calculate_distance_perpendicular_2d(ref_point1: Tuple[float, float, float],
+                                       ref_point2: Tuple[float, float, float],
+                                       point_a: Tuple[float, float, float],
+                                       point_b: Tuple[float, float, float],
+                                       plane: str = 'axial') -> float:
+    """Calculate distance between perpendiculars from two points to a reference line
+    
+    This is used for TT-TG distance:
+    - Reference line: posterior condylar line (ref_point1 to ref_point2)
+    - Point A: tibial tuberosity
+    - Point B: trochlear groove
+    
+    The function:
+    1. Projects all points to the specified plane
+    2. Drops perpendiculars from point_a and point_b to the reference line
+    3. Calculates distance between the two perpendicular intersection points
+    
+    Args:
+        ref_point1: First point of reference line (x, y, z) in mm
+        ref_point2: Second point of reference line (x, y, z) in mm
+        point_a: First point to drop perpendicular from (x, y, z) in mm
+        point_b: Second point to drop perpendicular from (x, y, z) in mm
+        plane: 'axial', 'sagittal', or 'coronal'
+    
+    Returns:
+        Distance in mm between the two perpendicular intersection points
+    """
+    # Project all points to 2D plane
+    ref1_2d = np.array(project_point_to_plane(ref_point1, plane))
+    ref2_2d = np.array(project_point_to_plane(ref_point2, plane))
+    pa_2d = np.array(project_point_to_plane(point_a, plane))
+    pb_2d = np.array(project_point_to_plane(point_b, plane))
+    
+    # Reference line direction vector
+    ref_vec = ref2_2d - ref1_2d
+    ref_length = np.linalg.norm(ref_vec)
+    ref_unit = ref_vec / ref_length
+    
+    # Find perpendicular intersection point for point_a
+    # Vector from ref_point1 to point_a
+    vec_to_a = pa_2d - ref1_2d
+    # Project onto reference line
+    proj_length_a = np.dot(vec_to_a, ref_unit)
+    intersection_a = ref1_2d + proj_length_a * ref_unit
+    
+    # Find perpendicular intersection point for point_b
+    vec_to_b = pb_2d - ref1_2d
+    proj_length_b = np.dot(vec_to_b, ref_unit)
+    intersection_b = ref1_2d + proj_length_b * ref_unit
+    
+    # Distance between the two intersection points
+    distance = np.linalg.norm(intersection_b - intersection_a)
+    
+    log.debug(f"Distance Perpendicular 2D ({plane}):")
+    log.debug(f"  Reference line: {ref_point1} to {ref_point2}")
+    log.debug(f"  Point A: {point_a} -> intersection at {intersection_a}")
+    log.debug(f"  Point B: {point_b} -> intersection at {intersection_b}")
+    log.debug(f"  Distance: {distance:.2f} mm")
+    
+    return float(distance)

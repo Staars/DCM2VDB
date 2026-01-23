@@ -5,11 +5,32 @@ from bpy.props import StringProperty, FloatProperty, IntProperty, CollectionProp
 from bpy.types import PropertyGroup
 
 
-class DicomMeasurementPointProperty(PropertyGroup):
-    """3D point for measurements"""
+class DicomLandmarkProperty(PropertyGroup):
+    """Anatomical landmark with 3D position"""
+    landmark_id: StringProperty(
+        name="ID",
+        description="Unique landmark identifier from template"
+    )
+    label: StringProperty(
+        name="Label",
+        description="Display label"
+    )
+    description: StringProperty(
+        name="Description",
+        description="Landmark description"
+    )
+    
+    # Position in mm
     x: FloatProperty(name="X", description="X coordinate in mm")
     y: FloatProperty(name="Y", description="Y coordinate in mm")
     z: FloatProperty(name="Z", description="Z coordinate in mm")
+    
+    # Status
+    is_placed: bpy.props.BoolProperty(
+        name="Placed",
+        description="Whether landmark has been placed",
+        default=False
+    )
 
 
 class DicomMeasurementProperty(PropertyGroup):
@@ -27,17 +48,12 @@ class DicomMeasurementProperty(PropertyGroup):
         items=[
             ('distance_2d', "Distance 2D", "Distance between two points projected to plane"),
             ('distance_3d', "Distance 3D", "True 3D distance between two points"),
+            ('distance_perpendicular_2d', "Distance Perpendicular 2D", "Distance between perpendiculars from two points to a reference line"),
             ('angle_2d', "Angle 2D", "Angle between two lines projected to plane"),
             ('angle_3d', "Angle 3D", "True 3D angle between two lines"),
             ('hu_value', "HU Value", "Hounsfield unit at point"),
         ],
         default='distance_2d'
-    )
-    points_required: IntProperty(
-        name="Points Required",
-        default=2,
-        min=1,
-        max=4
     )
     projection_plane: EnumProperty(
         name="Projection Plane",
@@ -54,10 +70,11 @@ class DicomMeasurementProperty(PropertyGroup):
         description="Measurement description"
     )
     
-    # Captured points
-    points: CollectionProperty(
-        type=DicomMeasurementPointProperty,
-        name="Points"
+    # Landmark IDs required for this measurement (stored as comma-separated string)
+    landmark_ids: StringProperty(
+        name="Landmark IDs",
+        description="Comma-separated list of landmark IDs required",
+        default=""
     )
     
     # Calculated result
@@ -75,9 +92,8 @@ class DicomMeasurementProperty(PropertyGroup):
     status: EnumProperty(
         name="Status",
         items=[
-            ('PENDING', "Pending", "Not started"),
-            ('IN_PROGRESS', "In Progress", "Capturing points"),
-            ('COMPLETED', "Completed", "All points captured"),
+            ('PENDING', "Pending", "Not all landmarks placed"),
+            ('COMPLETED', "Completed", "All landmarks placed and calculated"),
         ],
         default='PENDING'
     )
@@ -93,16 +109,22 @@ def register_measurement_props():
         default=""
     )
     
+    # Collection of landmarks
+    bpy.types.Scene.dicom_landmarks = CollectionProperty(
+        type=DicomLandmarkProperty,
+        name="Landmarks"
+    )
+    
     # Collection of measurements
     bpy.types.Scene.dicom_measurements = CollectionProperty(
         type=DicomMeasurementProperty,
         name="Measurements"
     )
     
-    # Active measurement index (for point capture)
-    bpy.types.Scene.dicom_active_measurement_index = IntProperty(
-        name="Active Measurement",
-        description="Index of measurement currently being captured",
+    # Active landmark index (for assignment)
+    bpy.types.Scene.dicom_active_landmark_index = IntProperty(
+        name="Active Landmark",
+        description="Index of landmark to assign to cursor",
         default=-1
     )
 
@@ -110,5 +132,6 @@ def register_measurement_props():
 def unregister_measurement_props():
     """Unregister measurement scene properties"""
     del bpy.types.Scene.dicom_measurement_template
+    del bpy.types.Scene.dicom_landmarks
     del bpy.types.Scene.dicom_measurements
-    del bpy.types.Scene.dicom_active_measurement_index
+    del bpy.types.Scene.dicom_active_landmark_index

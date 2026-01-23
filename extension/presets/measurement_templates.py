@@ -19,8 +19,18 @@ class MeasurementTemplate:
         self.modality = header.get("modality", "CT")
         self.version = header.get("version", "1.0")
         
+        # Landmarks (new in v2.0)
+        self.landmarks = data.get("landmarks", [])
+        
         # Measurements
         self.measurements = data.get("measurements", [])
+    
+    def get_landmark(self, landmark_id):
+        """Get landmark definition by ID"""
+        for landmark in self.landmarks:
+            if landmark["id"] == landmark_id:
+                return landmark
+        return None
     
     def get_measurement(self, measurement_id):
         """Get measurement definition by ID"""
@@ -39,6 +49,7 @@ class MeasurementTemplate:
                 "modality": self.modality,
                 "version": self.version
             },
+            "landmarks": self.landmarks,
             "measurements": self.measurements
         }
 
