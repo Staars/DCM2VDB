@@ -97,8 +97,21 @@ def gaussian_filter_gpu(image, sigma):
                 raise ValueError(f"Unexpected shape after separable conv: {result_4d.shape} -> {result_2d.shape}")
             
             return to_numpy(result_2d)
+        
+        elif backend_name == 'cupy':
+            # CuPy has GPU-accelerated scipy.ndimage functions
+            from cupyx.scipy import ndimage as cp_ndimage
+            
+            # Transfer to GPU
+            image_gpu = from_numpy(image.astype(np.float32))
+            
+            # Apply Gaussian filter on GPU
+            result_gpu = cp_ndimage.gaussian_filter(image_gpu, sigma=sigma)
+            
+            return to_numpy(result_gpu)
+        
         else:
-            # CuPy path - use scipy for now
+            # Unknown backend, fallback
             from scipy import ndimage
             return ndimage.gaussian_filter(image, sigma=sigma)
         
@@ -176,8 +189,21 @@ def gaussian_filter_3d_gpu(volume, sigma):
                 raise ValueError(f"Unexpected shape after 3D separable conv: {result_5d.shape} -> {result_3d.shape}")
             
             return to_numpy(result_3d)
+        
+        elif backend_name == 'cupy':
+            # CuPy has GPU-accelerated scipy.ndimage functions
+            from cupyx.scipy import ndimage as cp_ndimage
+            
+            # Transfer to GPU
+            volume_gpu = from_numpy(volume.astype(np.float32))
+            
+            # Apply 3D Gaussian filter on GPU
+            result_gpu = cp_ndimage.gaussian_filter(volume_gpu, sigma=sigma)
+            
+            return to_numpy(result_gpu)
+        
         else:
-            # CuPy path - use scipy for now
+            # Unknown backend, fallback
             from scipy import ndimage
             return ndimage.gaussian_filter(volume, sigma=sigma)
         
@@ -242,8 +268,21 @@ def percentile_filter_gpu(image, percentile, size=3):
             mx.eval(result)
             
             return to_numpy(result)
+        
+        elif backend_name == 'cupy':
+            # CuPy has GPU-accelerated scipy.ndimage functions
+            from cupyx.scipy import ndimage as cp_ndimage
+            
+            # Transfer to GPU
+            image_gpu = from_numpy(image.astype(np.float32))
+            
+            # Apply percentile filter on GPU
+            result_gpu = cp_ndimage.percentile_filter(image_gpu, percentile=percentile, size=size)
+            
+            return to_numpy(result_gpu)
+        
         else:
-            # CuPy fallback
+            # Unknown backend, fallback
             from scipy import ndimage
             return ndimage.percentile_filter(image, percentile=percentile, size=size)
         
@@ -299,8 +338,21 @@ def median_filter_gpu(image, size=3):
             mx.eval(result)
             
             return to_numpy(result)
+        
+        elif backend_name == 'cupy':
+            # CuPy has GPU-accelerated scipy.ndimage functions
+            from cupyx.scipy import ndimage as cp_ndimage
+            
+            # Transfer to GPU
+            image_gpu = from_numpy(image.astype(np.float32))
+            
+            # Apply median filter on GPU
+            result_gpu = cp_ndimage.median_filter(image_gpu, size=size)
+            
+            return to_numpy(result_gpu)
+        
         else:
-            # CuPy fallback
+            # Unknown backend, fallback
             from scipy import ndimage
             return ndimage.median_filter(image, size=size)
         
