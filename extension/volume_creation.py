@@ -267,21 +267,49 @@ def create_volume(slices, series_number=1, time_points_data=None):
         
         if method == 'GAUSSIAN_3D':
             # 3D Gaussian filter - processes entire volume at once
-            from scipy import ndimage
-            log.info("Applying 3D Gaussian filter...")
-            vol = ndimage.gaussian_filter(vol, sigma=strength)
-            log.info("3D Gaussian filter complete!")
+            from .compute_backend import backend_name
+            
+            if backend_name != 'numpy':
+                # Use GPU-accelerated 3D Gaussian filter
+                log.info(f"Applying 3D Gaussian filter with {backend_name.upper()} GPU acceleration...")
+                from .filters_gpu import gaussian_filter_3d_gpu
+                vol = gaussian_filter_3d_gpu(vol, sigma=strength)
+                log.info("GPU 3D Gaussian filter complete!")
+            else:
+                # Fallback to scipy for CPU
+                from scipy import ndimage
+                log.info("Applying 3D Gaussian filter (CPU)...")
+                vol = ndimage.gaussian_filter(vol, sigma=strength)
+                log.info("3D Gaussian filter complete!")
         else:
-            # 2D slice-by-slice filtering (existing methods)
-            from .volume_utils import denoise_slice_scipy
+            # 2D slice-by-slice filtering
+            from .compute_backend import backend_name
             
-            from .constants import DENOISING_PROGRESS_LOG_INTERVAL
-            
-            log.info(f"Applying 2D slice-by-slice filtering ({method})...")
-            for i in range(depth):
-                vol[i] = denoise_slice_scipy(vol[i], method=method, strength=strength)
+            if backend_name != 'numpy':
+                # Use GPU-accelerated filters
+                log.info(f"Using {backend_name.upper()} GPU-accelerated filtering ({method})...")
+                from .filters_gpu import denoise_slice_gpu
                 
-                # Log progress every DENOISING_PROGRESS_LOG_INTERVAL%
+                from .constants import DENOISING_PROGRESS_LOG_INTERVAL
+                
+                for i in range(depth):
+                    vol[i] = denoise_slice_gpu(vol[i], method=method, strength=strength)
+                    
+                    # Log progress every DENOISING_PROGRESS_LOG_INTERVAL%
+                    if (i + 1) % max(1, depth // (100 // DENOISING_PROGRESS_LOG_INTERVAL)) == 0:
+                        progress = int((i + 1) / depth * 100)
+                        log.info(f"  Series {series_number} GPU denoising: {progress}% ({i+1}/{depth} slices)")
+            else:
+                # Fallback to scipy for CPU
+                from .volume_utils import denoise_slice_scipy
+                
+                from .constants import DENOISING_PROGRESS_LOG_INTERVAL
+                
+                log.info(f"Applying 2D slice-by-slice filtering ({method})...")
+                for i in range(depth):
+                    vol[i] = denoise_slice_scipy(vol[i], method=method, strength=strength)
+                    
+                    # Log progress every DENOISING_PROGRESS_LOG_INTERVAL%
                 if (i + 1) % max(1, depth // DENOISING_PROGRESS_LOG_INTERVAL) == 0:
                     progress = (i + 1) / depth
                     log.info(f"  Series {series_number} denoising: {progress*100:.0f}% ({i+1}/{depth} slices)")
@@ -383,11 +411,45 @@ def create_volume(slices, series_number=1, time_points_data=None):
         
         # Normalize to 0-1 range using FIXED HU range for consistency across all volumes
         # This ensures same tissue types always map to same normalized values
-        vol_float = vol.astype(np.float32)
-        vol_normalized = (vol_float - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
         
-        # Clamp to 0-1 range (in case data exceeds standard range)
-        vol_normalized = np.clip(vol_normalized, 0.0, 1.0)
+        # GPU-accelerated normalization
+        from .compute_backend import backend_name
+        
+        vol_float = vol.astype(np.float32)
+        
+        # Use GPU if available
+        if backend_name != 'numpy':
+            log.info(f"Using {backend_name.upper()} GPU acceleration for volume normalization")
+            from .compute_backend import xp, to_numpy, from_numpy
+            
+            try:
+                # Transfer to GPU
+                vol_gpu = from_numpy(vol_float)
+                
+                # Normalize on GPU
+                vol_normalized_gpu = (vol_gpu - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
+                
+                # Clamp to 0-1 range
+                vol_normalized_gpu = xp.clip(vol_normalized_gpu, 0.0, 1.0)
+                
+                # Force evaluation for MLX
+                if backend_name == 'mlx':
+                    import mlx.core as mx
+                    mx.eval(vol_normalized_gpu)
+                
+                # Transfer back to CPU
+                vol_normalized = to_numpy(vol_normalized_gpu)
+                log.debug(f"GPU normalization complete")
+                
+            except Exception as e:
+                log.warning(f"GPU normalization failed, falling back to CPU: {e}")
+                # Fallback to CPU
+                vol_normalized = (vol_float - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
+                vol_normalized = np.clip(vol_normalized, 0.0, 1.0)
+        else:
+            # CPU path when GPU not available
+            vol_normalized = (vol_float - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
+            vol_normalized = np.clip(vol_normalized, 0.0, 1.0)
         
         log.debug(f"Original numpy array shape (Z,Y,X): {vol_float.shape}")
         log.debug(f"This means: {depth} slices of {height}x{width} images")

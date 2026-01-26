@@ -308,18 +308,17 @@ def register_scene_props():
     )
     bpy.types.Scene.denoise_strength = FloatProperty(
         name="Strength",
-        default=0.10,
+        default=0.50,
         min=0.01,
         max=1.0,
         step=1,
         precision=2,
-        description="Denoising strength (0.01 = minimal, 0.1 = subtle, 0.5 = strong, 1.0 = maximum)"
+        description="Denoising strength (0.01 = minimal, 0.5 = recommended, 1.0 = maximum)"
     )
     bpy.types.Scene.denoise_method = EnumProperty(
         name="Method",
         items=[
             ('PERCENTILE_25', "Percentile 25% (recommended)", "Darkens image slightly - good for CT noise"),
-            ('WIENER', "Wiener (strong)", "Adaptive filter - good for CT noise patterns"),
             ('GAUSSIAN_3D', "Gaussian 3D", "3D Gaussian filter - smooth and edge-preserving, processes entire volume"),
             ('GAUSSIAN', "Gaussian 2D", "2D Gaussian blur - fast slice-by-slice processing"),
             ('PERCENTILE_75', "Percentile 75%", "Brightens image slightly"),

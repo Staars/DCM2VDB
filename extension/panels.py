@@ -522,10 +522,62 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
                         col.label(text=f"  Row: [{orientation[0]:.2f}, {orientation[1]:.2f}, {orientation[2]:.2f}]")
                         col.label(text=f"  Col: [{orientation[3]:.2f}, {orientation[4]:.2f}, {orientation[5]:.2f}]")
 
+
+class VIEW3D_PT_dicom_debug(Panel):
+    """Debug and performance testing panel"""
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "DICOM"
+    bl_label = "Debug & Performance"
+    bl_context = "objectmode"
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        # Compute backend info
+        try:
+            from .compute_backend import backend_name, get_backend_info
+            
+            box = layout.box()
+            box.label(text="Compute Backend", icon='SYSTEM')
+            
+            info = get_backend_info()
+            box.label(text=f"Backend: {info['name'].upper()}")
+            
+            if info['gpu_accelerated']:
+                box.label(text=f"Device: {info['device']}", icon='CHECKMARK')
+                
+                # Show MLX-specific info
+                if info['name'] == 'mlx':
+                    if 'architecture' in info:
+                        box.label(text=f"Architecture: {info['architecture']}")
+                    if 'total_memory' in info:
+                        box.label(text=f"Memory: {info['total_memory']}")
+                    if 'recommended_memory' in info:
+                        box.label(text=f"Recommended: {info['recommended_memory']}")
+                
+                # Show CuPy-specific info
+                elif info['name'] == 'cupy':
+                    if 'memory_total' in info:
+                        box.label(text=f"GPU Memory: {info['memory_free']} / {info['memory_total']}")
+                    if 'compute_capability' in info:
+                        box.label(text=f"Compute: {info['compute_capability']}")
+            else:
+                box.label(text="CPU only (no GPU)", icon='INFO')
+            
+            # Test button
+            box.operator("dicom.test_compute_backend", text="Run Performance Test", icon='PLAY')
+            
+        except Exception as e:
+            layout.label(text=f"Backend error: {e}", icon='ERROR')
+
+
 classes = (
     VIEW3D_PT_dicom_patient,
     VIEW3D_PT_dicom_visualization,
     IMAGE_EDITOR_PT_dicom_controls,
+    VIEW3D_PT_dicom_debug,
 )
 
 def register():

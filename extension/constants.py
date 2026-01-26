@@ -34,7 +34,7 @@ MIN_ISLAND_VERTICES = 100  # Minimum vertices for island separation
 
 # Denoising settings
 DENOISING_PROGRESS_LOG_INTERVAL = 10  # Log progress every N percent
-DENOISING_PERCENTILE_BLEND_MULTIPLIER = 2.0  # Multiplier for percentile filter blending
+DENOISING_PERCENTILE_BLEND_MULTIPLIER = 0.4  # Multiplier for percentile filter blending (0.5 strength → 20% blend)
 DENOISING_WIENER_SIZE_MULTIPLIER = 40  # Multiplier for Wiener filter window size
 DENOISING_MEDIAN_KERNEL_SIZE = 3  # Kernel size for median filter
 

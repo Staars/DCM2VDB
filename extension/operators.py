@@ -10,6 +10,7 @@ from .volume import create_volume
 from .preview import load_and_display_slice
 from .patient import Patient
 from .utils import SimpleLogger
+from .compute_test import DICOM_OT_test_compute_backend
 
 import numpy as np
 
@@ -1586,6 +1587,7 @@ classes = (
     IMAGE_OT_dicom_scroll,
     IMAGE_OT_dicom_scroll_time_point,
     IMPORT_OT_dicom_import_series,
+    DICOM_OT_test_compute_backend,
 )
 
 addon_keymaps = []

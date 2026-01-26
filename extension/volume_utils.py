@@ -87,7 +87,7 @@ def save_debug_slice(volume_array: NDArray[np.float32],
 
 def denoise_slice_scipy(
     slice_array: NDArray[np.float32], 
-    method: Literal['GAUSSIAN', 'PERCENTILE_25', 'PERCENTILE_75', 'WIENER', 'MEDIAN', 'GAUSSIAN_3D'] = 'GAUSSIAN',
+    method: Literal['GAUSSIAN', 'PERCENTILE_25', 'PERCENTILE_75', 'MEDIAN', 'GAUSSIAN_3D'] = 'GAUSSIAN',
     strength: float = 1.0
 ) -> NDArray[np.float32]:
     """
@@ -133,21 +133,6 @@ def denoise_slice_scipy(
         blend_factor = min(blend_factor, 1.0)
         result = (1.0 - blend_factor) * slice_array + blend_factor * filtered
         log.info(f"  Percentile 75% filter with {blend_factor*100:.1f}% blend")
-    
-    elif method == 'WIENER':
-        # Wiener filter - adaptive noise reduction
-        try:
-            from scipy.signal import wiener
-            # Map strength to window size with doubled range: 0.01-1.0 -> 3-21 pixels
-            # This allows stronger denoising than before
-            mysize = max(DENOISING_MEDIAN_KERNEL_SIZE, int(strength * DENOISING_WIENER_SIZE_MULTIPLIER + 1))
-            if mysize % 2 == 0:
-                mysize += 1
-            result = wiener(slice_array, mysize=mysize)
-            log.info(f"  Wiener filter with {mysize}x{mysize} window (strength={strength:.2f})")
-        except ImportError:
-            log.info("  WARNING: scipy.signal not available, falling back to Gaussian")
-            result = ndimage.gaussian_filter(slice_array, sigma=strength)
     
     elif method == 'MEDIAN':
         # Median filter with blending for subtle control
