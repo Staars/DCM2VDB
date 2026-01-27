@@ -10,6 +10,58 @@ log = SimpleLogger()
 
 # Update callbacks must be defined BEFORE the PropertyGroup classes that use them
 
+def update_material_preset(context):
+    """Update material preset when user changes selection"""
+    preset_name = context.scene.dicom_material_preset
+    log.info(f"Material preset changed to: {preset_name}")
+    
+    # Sync the internal property
+    context.scene.dicom_active_material_preset = preset_name
+    
+    # Reinitialize tissue alphas for new preset
+    initialize_tissue_alphas(context, preset_name, silent=False)
+    
+    # Recreate volume materials for all loaded volumes
+    import bpy
+    materials_to_recreate = []
+    
+    # First, collect all volume materials and their objects
+    for mat in list(bpy.data.materials):
+        if mat.name.endswith("_Volume_Material") and mat.use_nodes:
+            vol_objects = [obj for obj in bpy.data.objects 
+                          if obj.type == 'VOLUME' and 
+                          any(slot.material and slot.material.name == mat.name for slot in obj.material_slots)]
+            
+            if vol_objects:
+                materials_to_recreate.append((mat.name, vol_objects))
+    
+    # Now remove and recreate materials
+    for mat_name, vol_objects in materials_to_recreate:
+        log.info(f"Removing old material: {mat_name}")
+        mat = bpy.data.materials.get(mat_name)
+        if mat:
+            bpy.data.materials.remove(mat)
+        
+        # Get HU range from scene
+        vol_min = context.scene.dicom_volume_hu_min
+        vol_max = context.scene.dicom_volume_hu_max
+        
+        # Determine modality from material name
+        modality = "CT" if "CT_" in mat_name else "MR"
+        
+        log.info(f"Recreating material with preset: {preset_name}, modality: {modality}")
+        
+        # Recreate material for all volume objects
+        from .materials import create_volume_material
+        for vol_obj in vol_objects:
+            create_volume_material(vol_obj, vol_min, vol_max, preset_name=preset_name, modality=modality, series_description="")
+        
+        log.info(f"Material recreated: {mat_name}")
+    
+    # Update geometry nodes HU thresholds
+    from .geometry_nodes import update_geometry_nodes_preset
+    update_geometry_nodes_preset(context, preset_name)
+
 def update_tissue_alpha_dynamic(self, context):
     """Update alpha values in volume material color ramp dynamically based on preset"""
     
@@ -46,8 +98,9 @@ def update_tissue_alpha_dynamic(self, context):
 
     # Load the active preset to get tissue order
     from .material_presets import load_preset
-    preset_name = context.scene.dicom_active_material_preset
+    preset_name = context.scene.dicom_material_preset
     if not preset_name:
+        log.debug("No material preset selected")
         return
     
     preset = load_preset(preset_name)
@@ -61,20 +114,10 @@ def update_tissue_alpha_dynamic(self, context):
         alpha_map[tissue_alpha.tissue_name] = tissue_alpha.alpha
     
     # Update color ramp elements
-    # Stop 0: Air threshold (always transparent)
     # For each tissue: 2 stops (START and END)
-    # START uses previous tissue's alpha (for transition)
-    # END uses current tissue's alpha
     
     elements = color_ramp.color_ramp.elements
-    tissues = preset.tissues  # Already sorted by order
-    
-    # Calculate expected number of stops: 2 stops per tissue (no special cases)
-    expected_stops = 2 * len(tissues)
-    
-    if len(elements) < expected_stops:
-        log.warning(f"Color ramp has {len(elements)} stops, expected {expected_stops}")
-        return
+    tissues = preset.tissues  # Get tissues from preset
     
     stop_idx = 0  # Start from first stop
     
@@ -82,7 +125,7 @@ def update_tissue_alpha_dynamic(self, context):
         tissue_name = tissue.get('name', '')
         tissue_alpha = alpha_map.get(tissue_name, tissue.get('alpha_default', 1.0))
         
-        # START stop - uses current tissue's alpha (sharp transition)
+        # START stop - uses current tissue's alpha
         if stop_idx < len(elements):
             elements[stop_idx].color = (
                 elements[stop_idx].color[0],
@@ -90,9 +133,10 @@ def update_tissue_alpha_dynamic(self, context):
                 elements[stop_idx].color[2],
                 tissue_alpha
             )
+            log.debug(f"Updated {tissue_name} START at index {stop_idx} to alpha {tissue_alpha}")
             stop_idx += 1
         
-        # END stop - uses current tissue's alpha (sharp transition)
+        # END stop - uses current tissue's alpha
         if stop_idx < len(elements):
             elements[stop_idx].color = (
                 elements[stop_idx].color[0],
@@ -100,9 +144,10 @@ def update_tissue_alpha_dynamic(self, context):
                 elements[stop_idx].color[2],
                 tissue_alpha
             )
+            log.debug(f"Updated {tissue_name} END at index {stop_idx} to alpha {tissue_alpha}")
             stop_idx += 1
     
-    log.debug(f"Updated {stop_idx} color ramp stops")
+    log.debug(f"Updated {stop_idx} color ramp stops for preset {preset_name}")
 
 # PropertyGroup classes (defined after update callbacks)
 
@@ -154,6 +199,17 @@ def register_scene_props():
         min=0
     )
     bpy.types.Scene.dicom_preview_slice_count = IntProperty(default=0)
+    
+    # 4D preview properties
+    bpy.types.Scene.dicom_preview_is_4d = BoolProperty(default=False)
+    bpy.types.Scene.dicom_preview_time_point_index = IntProperty(
+        name="Time Point",
+        default=0,
+        min=0
+    )
+    bpy.types.Scene.dicom_preview_time_point_count = IntProperty(default=0)
+    bpy.types.Scene.dicom_preview_slices_per_time_point = IntProperty(default=0)
+    
     bpy.types.Scene.dicom_show_series_list = BoolProperty(
         name="Show Series List",
         default=True,
@@ -177,10 +233,10 @@ def register_scene_props():
         default=""
     )
     
-    # Active material preset
+    # Active material preset (internal, kept for compatibility)
     bpy.types.Scene.dicom_active_material_preset = StringProperty(
         name="Material Preset",
-        description="Active material preset name",
+        description="Active material preset name (internal)",
         default="ct_standard"
     )
     
@@ -191,6 +247,19 @@ def register_scene_props():
         description="Dynamic tissue opacity values"
     )
     
+    # Material preset selection
+    bpy.types.Scene.dicom_material_preset = EnumProperty(
+        name="Material Preset",
+        description="Select material preset for volume rendering",
+        items=[
+            ('ct_standard', "CT Standard", "Standard CT with full body tissues", 'COMMUNITY', 0),
+            ('ct_brain', "CT Brain", "CT brain with CSF, brain tissue, blood, and contrast", 'OUTLINER_OB_META', 1),
+            ('mri_t1_brain', "MRI T1 Brain", "MRI T1-weighted brain imaging", 'OUTLINER_OB_SURFACE', 2),
+        ],
+        default='ct_standard',
+        update=lambda self, context: update_material_preset(context)
+    )
+    
     # Active tool selection
     bpy.types.Scene.dicom_active_tool = EnumProperty(
         name="Active Tool",
@@ -198,11 +267,6 @@ def register_scene_props():
         items=[
             ('NONE', "None", "No tool selected", 'QUESTION', 0),
             ('VISUALIZATION', "Visualization", "View and render volumes", 'SHADING_RENDERED', 1),
-            ('MEASUREMENT', "Measurement", "Measure distances, angles, volumes (Coming Soon)", 'DRIVER_DISTANCE', 2),
-            ('SEGMENTATION', "Segmentation", "Isolate anatomical structures (Coming Soon)", 'MOD_MASK', 3),
-            ('REGISTRATION', "Registration", "Align multiple scans (Coming Soon)", 'ORIENTATION_GIMBAL', 4),
-            ('EXPORT', "Export", "Export data and meshes (Coming Soon)", 'EXPORT', 5),
-            ('ANALYSIS', "Analysis", "Density analysis and statistics (Coming Soon)", 'GRAPH', 6),
         ],
         default='NONE'
     )
@@ -244,18 +308,17 @@ def register_scene_props():
     )
     bpy.types.Scene.denoise_strength = FloatProperty(
         name="Strength",
-        default=0.10,
+        default=0.50,
         min=0.01,
         max=1.0,
         step=1,
         precision=2,
-        description="Denoising strength (0.01 = minimal, 0.1 = subtle, 0.5 = strong, 1.0 = maximum)"
+        description="Denoising strength (0.01 = minimal, 0.5 = recommended, 1.0 = maximum)"
     )
     bpy.types.Scene.denoise_method = EnumProperty(
         name="Method",
         items=[
             ('PERCENTILE_25', "Percentile 25% (recommended)", "Darkens image slightly - good for CT noise"),
-            ('WIENER', "Wiener (strong)", "Adaptive filter - good for CT noise patterns"),
             ('GAUSSIAN_3D', "Gaussian 3D", "3D Gaussian filter - smooth and edge-preserving, processes entire volume"),
             ('GAUSSIAN', "Gaussian 2D", "2D Gaussian blur - fast slice-by-slice processing"),
             ('PERCENTILE_75', "Percentile 75%", "Brightens image slightly"),
@@ -293,7 +356,7 @@ def get_tissue_thresholds_from_preset(preset_name="ct_standard"):
         'bone': {'min': 400, 'max': 1000}
     }
     """
-    from .material_presets import load_preset
+    from .presets.material_presets import load_preset
     
     preset = load_preset(preset_name)
     if not preset:
@@ -315,7 +378,7 @@ def initialize_tissue_alphas(context, preset_name="ct_standard", silent=False):
         preset_name: Name of preset to load
         silent: If True, suppress update callbacks during initialization
     """
-    from .material_presets import load_preset
+    from .presets.material_presets import load_preset
     
     preset = load_preset(preset_name)
     if not preset:
@@ -353,10 +416,15 @@ def unregister_scene_props():
     del bpy.types.Scene.dicom_preview_series_index
     del bpy.types.Scene.dicom_preview_slice_index
     del bpy.types.Scene.dicom_preview_slice_count
+    del bpy.types.Scene.dicom_preview_is_4d
+    del bpy.types.Scene.dicom_preview_time_point_index
+    del bpy.types.Scene.dicom_preview_time_point_count
+    del bpy.types.Scene.dicom_preview_slices_per_time_point
     del bpy.types.Scene.dicom_show_series_list
     del bpy.types.Scene.dicom_show_spatial_info
     del bpy.types.Scene.dicom_show_tissue_volumes
     del bpy.types.Scene.dicom_patient_data
+    del bpy.types.Scene.dicom_material_preset
     del bpy.types.Scene.dicom_active_tool
     del bpy.types.Scene.dicom_volume_data_path
     del bpy.types.Scene.dicom_volume_spacing

@@ -2,7 +2,7 @@
 
 import json
 import os
-from .utils import SimpleLogger
+from ..utils import SimpleLogger
 
 log = SimpleLogger()
 
@@ -108,7 +108,7 @@ def get_preset_for_modality(modality, series_description=""):
 
 def load_preset(preset_name):
     """Load a material preset from JSON file"""
-    addon_dir = os.path.dirname(os.path.abspath(__file__))
+    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     presets_dir = os.path.join(addon_dir, "presets", "tissue")
     preset_path = os.path.join(presets_dir, f"{preset_name}.json")
     
@@ -130,7 +130,7 @@ def load_preset(preset_name):
 
 def list_presets():
     """List all available presets"""
-    addon_dir = os.path.dirname(os.path.abspath(__file__))
+    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     presets_dir = os.path.join(addon_dir, "presets", "tissue")
     
     if not os.path.exists(presets_dir):
@@ -149,7 +149,7 @@ def list_presets():
 
 def save_preset(preset, preset_name):
     """Save a material preset to JSON file"""
-    addon_dir = os.path.dirname(os.path.abspath(__file__))
+    addon_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     presets_dir = os.path.join(addon_dir, "presets", "tissue")
     
     # Create presets directory if it doesn't exist

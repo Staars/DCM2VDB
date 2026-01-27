@@ -1,0 +1,102 @@
+{
+  "header": {
+    "name": "knee_morphometric_profile",
+    "label": "Knee Morphometric Profile",
+    "description": "Knee rotational and alignment measurements",
+    "modality": "CT",
+    "version": "2.0"
+  },
+  "landmarks": [
+    {
+      "id": "femoral_neck_center",
+      "label": "Femoral Neck Center",
+      "description": "Center of femoral neck"
+    },
+    {
+      "id": "femoral_head_center",
+      "label": "Femoral Head Center",
+      "description": "Center of femoral head"
+    },
+    {
+      "id": "posterior_condyle_medial",
+      "label": "Posterior Condyle (Medial)",
+      "description": "Most posterior point of medial femoral condyle"
+    },
+    {
+      "id": "posterior_condyle_lateral",
+      "label": "Posterior Condyle (Lateral)",
+      "description": "Most posterior point of lateral femoral condyle"
+    },
+    {
+      "id": "tibial_tuberosity",
+      "label": "Tibial Tuberosity",
+      "description": "Center of tibial tuberosity"
+    },
+    {
+      "id": "trochlear_groove",
+      "label": "Trochlear Groove",
+      "description": "Deepest point of trochlear groove"
+    },
+    {
+      "id": "tibial_plateau_medial",
+      "label": "Tibial Plateau (Medial)",
+      "description": "Medial edge of tibial plateau"
+    },
+    {
+      "id": "tibial_plateau_lateral",
+      "label": "Tibial Plateau (Lateral)",
+      "description": "Lateral edge of tibial plateau"
+    },
+    {
+      "id": "malleolus_medial",
+      "label": "Medial Malleolus",
+      "description": "Most prominent point of medial malleolus"
+    },
+    {
+      "id": "malleolus_lateral",
+      "label": "Lateral Malleolus",
+      "description": "Most prominent point of lateral malleolus"
+    }
+  ],
+  "measurements": [
+    {
+      "id": "femoral_anteversion",
+      "label": "Femoral Anteversion",
+      "type": "angle_2d",
+      "projection_plane": "axial",
+      "description": "Angle between femoral neck axis and posterior condylar axis",
+      "landmarks": [
+        "femoral_head_center",
+        "femoral_neck_center",
+        "posterior_condyle_medial",
+        "posterior_condyle_lateral"
+      ]
+    },
+    {
+      "id": "tt_tg_distance",
+      "label": "TT–TG Distance",
+      "type": "distance_perpendicular_2d",
+      "projection_plane": "axial",
+      "description": "Distance between perpendiculars from tibial tuberosity and trochlear groove to posterior condylar line",
+      "landmarks": [
+        "posterior_condyle_medial",
+        "posterior_condyle_lateral",
+        "tibial_tuberosity",
+        "trochlear_groove"
+      ]
+    },
+    {
+      "id": "tibial_torsion",
+      "label": "Tibial Torsion",
+      "type": "angle_2d",
+      "projection_plane": "axial",
+      "description": "Angle between tibial plateau axis and malleolar axis",
+      "landmarks": [
+        "tibial_plateau_medial",
+        "tibial_plateau_lateral",
+        "malleolus_medial",
+        "malleolus_lateral"
+      ]
+    }
+  ]
+}

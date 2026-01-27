@@ -3,7 +3,7 @@
 import bpy
 from .constants import *
 from .volume_utils import hu_to_normalized
-from .material_presets import load_preset
+from .presets.material_presets import load_preset
 
 # Get logger for this extension
 from .utils import SimpleLogger
@@ -22,7 +22,7 @@ def create_volume_material(vol_obj, vol_min, vol_max, preset_name="ct_standard",
     """
     # Auto-detect preset if using default
     if preset_name == "ct_standard" and modality:
-        from .material_presets import get_preset_for_modality
+        from .presets.material_presets import get_preset_for_modality
         preset_name = get_preset_for_modality(modality, series_description)
         log.info(f"Auto-detected preset: {preset_name} for modality {modality}")
     

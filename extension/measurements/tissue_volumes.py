@@ -5,8 +5,8 @@ import os
 import json
 from typing import Tuple, Optional, Any
 from numpy.typing import NDArray
-from .utils import SimpleLogger
-from .constants import MM3_TO_ML
+from ..utils import SimpleLogger
+from ..constants import MM3_TO_ML
 
 # Get logger for this extension
 log = SimpleLogger()
@@ -91,7 +91,7 @@ def calculate_and_store_tissue_volumes(context: Any, series: Any) -> bool:
         slice_thickness = spacing[2]  # Z
         
         # Get tissue thresholds from active material preset
-        from .properties import get_tissue_thresholds_from_preset
+        from ..properties import get_tissue_thresholds_from_preset
         thresholds = get_tissue_thresholds_from_preset(scn.dicom_active_material_preset)
         
         # Clear previous measurements

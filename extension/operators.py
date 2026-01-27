@@ -10,6 +10,7 @@ from .volume import create_volume
 from .preview import load_and_display_slice
 from .patient import Patient
 from .utils import SimpleLogger
+from .compute_test import DICOM_OT_test_compute_backend
 
 import numpy as np
 
@@ -229,16 +230,13 @@ class IMPORT_OT_dicom_preview(Operator):
             self.report({'ERROR'}, f"Failed to load slice: {e}")
             return {'CANCELLED'}
         
-        # Try to load in existing Image Editor (inline the code)
-        image_editor_found = False
-        for window in context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'IMAGE_EDITOR':
-                    for space in area.spaces:
-                        if space.type == 'IMAGE_EDITOR':
-                            space.image = bpy.data.images.get("DICOM_Preview")
-                            image_editor_found = True
-                            break
+        # Try to load in existing Image Editor
+        from .ui_utils import set_image_in_all_editors
+        
+        image_editor_found = set_image_in_all_editors(
+            context, 
+            bpy.data.images.get("DICOM_Preview")
+        )
         
         if image_editor_found:
             self.report({'INFO'}, f"Preview loaded in Image Editor with {len(series['files'])} slices. Use mouse wheel to scroll.")
@@ -377,21 +375,17 @@ class IMPORT_OT_dicom_open_in_editor(Operator):
     bl_options = {'INTERNAL'}
     
     def execute(self, context):
+        from .ui_utils import set_image_in_all_editors
+        
         # Only look for existing Image Editor areas, never switch automatically
-        image_editor_found = False
+        image_editor_found = set_image_in_all_editors(
+            context,
+            bpy.data.images.get("DICOM_Preview")
+        )
         
-        for window in context.window_manager.windows:
-            for area in window.screen.areas:
-                if area.type == 'IMAGE_EDITOR':
-                    # Found one, set the image
-                    for space in area.spaces:
-                        if space.type == 'IMAGE_EDITOR':
-                            space.image = bpy.data.images.get("DICOM_Preview")
-                            image_editor_found = True
-                            self.report({'INFO'}, "Preview loaded in Image Editor")
-                            break
-        
-        if not image_editor_found:
+        if image_editor_found:
+            self.report({'INFO'}, "Preview loaded in Image Editor")
+        else:
             self.report({'WARNING'}, "No Image Editor found. Please manually open an Image Editor area first.")
         
         return {'FINISHED'}
@@ -650,6 +644,8 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
                 except Exception as e:
                     log.error(f"Failed to apply centering offset: {e}")
             
+            from .ui_utils import refresh_all_3d_views
+            
             # Set 3D cursor
             context.scene.cursor.location = blender_pos
             
@@ -657,9 +653,7 @@ class IMAGE_OT_dicom_set_cursor_3d(Operator):
                 f"3D Cursor set to ({blender_pos[0]:.3f}, {blender_pos[1]:.3f}, {blender_pos[2]:.3f})")
             
             # Redraw 3D views
-            for area in context.screen.areas:
-                if area.type == 'VIEW_3D':
-                    area.tag_redraw()
+            refresh_all_3d_views(context)
             
             return {'FINISHED'}
             
@@ -682,8 +676,23 @@ class IMAGE_OT_dicom_scroll(Operator):
         
         if context.scene.dicom_preview_slice_count > 0:
             current = context.scene.dicom_preview_slice_index
-            new_index = current + self.direction
-            new_index = max(0, min(context.scene.dicom_preview_slice_count - 1, new_index))
+            
+            # For 4D series, constrain scrolling to current time point
+            if context.scene.dicom_preview_is_4d:
+                slices_per_tp = context.scene.dicom_preview_slices_per_time_point
+                current_tp = context.scene.dicom_preview_time_point_index
+                
+                # Calculate slice range for current time point
+                tp_start = current_tp * slices_per_tp
+                tp_end = tp_start + slices_per_tp - 1
+                
+                # Calculate new index within time point
+                new_index = current + self.direction
+                new_index = max(tp_start, min(tp_end, new_index))
+            else:
+                # Regular series - scroll through all slices
+                new_index = current + self.direction
+                new_index = max(0, min(context.scene.dicom_preview_slice_count - 1, new_index))
             
             if new_index != current:
                 # Load the slice directly
@@ -695,6 +704,43 @@ class IMAGE_OT_dicom_scroll(Operator):
                     if new_index < len(series['files']):
                         context.scene.dicom_preview_slice_index = new_index
                         load_and_display_slice(context, series['files'][new_index], series)
+        
+        return {'FINISHED'}
+
+class IMAGE_OT_dicom_scroll_time_point(Operator):
+    """Scroll through 4D time points"""
+    bl_idname = "image.dicom_scroll_time_point"
+    bl_label = "Scroll Time Points"
+    bl_options = {'INTERNAL'}
+    
+    direction: IntProperty(default=0)
+    
+    def execute(self, context):
+        import json
+        
+        if not context.scene.dicom_preview_is_4d:
+            return {'CANCELLED'}
+        
+        current_tp = context.scene.dicom_preview_time_point_index
+        new_tp = current_tp + self.direction
+        new_tp = max(0, min(context.scene.dicom_preview_time_point_count - 1, new_tp))
+        
+        if new_tp != current_tp:
+            context.scene.dicom_preview_time_point_index = new_tp
+            
+            # Jump to first slice of new time point
+            slices_per_tp = context.scene.dicom_preview_slices_per_time_point
+            new_slice_index = new_tp * slices_per_tp
+            
+            # Load the slice
+            series_list = json.loads(context.scene.dicom_series_data)
+            series_idx = context.scene.dicom_preview_series_index
+            
+            if series_idx < len(series_list):
+                series = series_list[series_idx]
+                if new_slice_index < len(series['files']):
+                    context.scene.dicom_preview_slice_index = new_slice_index
+                    load_and_display_slice(context, series['files'][new_slice_index], series)
         
         return {'FINISHED'}
 
@@ -810,7 +856,8 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             context.scene.dicom_patient_data = patient.to_json()
             
             # Automatically calculate tissue volumes for this series
-            self._calculate_all_volumes(context, series)
+            from .measurements.tissue_volumes import calculate_and_store_tissue_volumes
+            calculate_and_store_tissue_volumes(context, series)
             
             # Save updated measurements
             context.scene.dicom_patient_data = patient.to_json()
@@ -823,49 +870,6 @@ class IMPORT_OT_dicom_visualize_series(Operator):
             import traceback
             traceback.print_exc()
             return {'CANCELLED'}
-    
-    def _calculate_all_volumes(self, context, series):
-        """Calculate all tissue volumes automatically for a specific series"""
-        from .measurements import calculate_tissue_volume
-        import json
-        
-        scn = context.scene
-        
-        # Check if volume data is available
-        if not scn.dicom_volume_data_path or not os.path.exists(scn.dicom_volume_data_path):
-            return
-        
-        try:
-            # Load volume data
-            vol_array = np.load(scn.dicom_volume_data_path)
-            
-            # Parse spacing
-            spacing = json.loads(scn.dicom_volume_spacing)  # [X, Y, Z] in mm
-            pixel_spacing = (spacing[1], spacing[0])  # (row, col) = (Y, X)
-            slice_thickness = spacing[2]  # Z
-            
-            # Calculate all tissue volumes and store in series (dynamic from preset)
-            from .properties import get_tissue_thresholds_from_preset
-            thresholds = get_tissue_thresholds_from_preset(scn.dicom_active_material_preset)
-            
-            # Clear previous measurements
-            series.tissue_volumes = {}
-            
-            # Calculate volume for each tissue defined in preset
-            for tissue_name, tissue_range in thresholds.items():
-                volume_ml = calculate_tissue_volume(
-                    vol_array,
-                    tissue_range.get('min', 0),
-                    tissue_range.get('max', 0),
-                    pixel_spacing, slice_thickness
-                )
-                if volume_ml > 0:
-                    series.tissue_volumes[tissue_name] = volume_ml
-            
-            log.debug(f"Tissue volumes calculated for series {series.series_number}")
-            
-        except Exception as e:
-            log.error(f"Failed to calculate volumes: {e}")
 
 class IMPORT_OT_dicom_preview_series(Operator):
     """Preview series in Image Editor (2D slice viewer)"""
@@ -877,6 +881,7 @@ class IMPORT_OT_dicom_preview_series(Operator):
     
     def execute(self, context):
         import json
+
         # Load patient from scene
         if not context.scene.dicom_patient_data:
             self.report({'ERROR'}, "No patient loaded")
@@ -902,14 +907,11 @@ class IMPORT_OT_dicom_preview_series(Operator):
         
         # Clear old DICOM_Preview image to force fresh load
         if "DICOM_Preview" in bpy.data.images:
+            from .ui_utils import clear_image_from_all_editors
+            
             old_img = bpy.data.images["DICOM_Preview"]
             # First, clear it from all Image Editors
-            for window in context.window_manager.windows:
-                for area in window.screen.areas:
-                    if area.type == 'IMAGE_EDITOR':
-                        for space in area.spaces:
-                            if space.type == 'IMAGE_EDITOR' and space.image == old_img:
-                                space.image = None
+            clear_image_from_all_editors(context, old_img)
             # Now remove the image
             bpy.data.images.remove(old_img)
             log.debug("Cleared old DICOM_Preview image")
@@ -919,6 +921,19 @@ class IMPORT_OT_dicom_preview_series(Operator):
         context.scene.dicom_preview_slice_index = 0
         context.scene.dicom_preview_slice_count = len(file_paths)
         context.scene.dicom_preview_series_index = 0  # Always use index 0 for single series
+        
+        # Store 4D metadata if applicable
+        if series.is_4d:
+            context.scene.dicom_preview_is_4d = True
+            context.scene.dicom_preview_time_point_index = 0
+            context.scene.dicom_preview_time_point_count = series.num_time_points
+            context.scene.dicom_preview_slices_per_time_point = series.time_points[0]['slice_count']
+            log.info(f"4D preview: {series.num_time_points} time points, {series.time_points[0]['slice_count']} slices per time point")
+        else:
+            context.scene.dicom_preview_is_4d = False
+            context.scene.dicom_preview_time_point_index = 0
+            context.scene.dicom_preview_time_point_count = 0
+            context.scene.dicom_preview_slices_per_time_point = 0
         
         # Store series data in old format for compatibility with preview_slice and scroll operators
         series_list = [{
@@ -936,18 +951,13 @@ class IMPORT_OT_dicom_preview_series(Operator):
             # and force a complete refresh
             dicom_img = bpy.data.images.get("DICOM_Preview")
             if dicom_img:
-                image_editor_found = False
-                for window in context.window_manager.windows:
-                    for area in window.screen.areas:
-                        if area.type == 'IMAGE_EDITOR':
-                            for space in area.spaces:
-                                if space.type == 'IMAGE_EDITOR':
-                                    # Force refresh by clearing and reassigning
-                                    space.image = None
-                                    space.image = dicom_img
-                                    image_editor_found = True
-                            # Tag for redraw
-                            area.tag_redraw()
+                from .ui_utils import set_image_in_all_editors
+                
+                image_editor_found = set_image_in_all_editors(
+                    context, 
+                    dicom_img, 
+                    clear_first=True  # Force refresh
+                )
                 
                 if image_editor_found:
                     self.report({'INFO'}, f"Preview loaded in Image Editor: {series.series_description} ({len(file_paths)} slices)")
@@ -1000,22 +1010,18 @@ class IMPORT_OT_dicom_set_tool(Operator):
                     self.report({'INFO'}, f"Auto-visualizing {len(selected_series)} selected series...")
                     
                     for series in selected_series:
-                        # Build absolute file paths
-                        file_paths = [os.path.join(patient.dicom_root_path, rel_path) 
-                                     for rel_path in series.file_paths]
+                        # Check if this is a 4D series
+                        is_4d = hasattr(series, 'is_4d') and series.is_4d
                         
-                        # Load slices
-                        from .dicom_io import load_slice
-                        slices = []
-                        for path in file_paths:
-                            slice_data = load_slice(path)
-                            if slice_data is not None:
-                                slices.append(slice_data)
-                        
-                        if len(slices) >= 2:
-                            # Create volume
+                        if is_4d:
+                            # 4D series - pass time points data
+                            log.info(f"Visualizing 4D series: {series.series_description}")
                             from .volume import create_volume
-                            vol_obj = create_volume(slices, series_number=series.series_number)
+                            vol_obj = create_volume(
+                                slices=None,  # Not used for 4D
+                                series_number=series.series_number,
+                                time_points_data=series.time_points
+                            )
                             
                             # Update series state
                             series.is_loaded = True
@@ -1024,10 +1030,42 @@ class IMPORT_OT_dicom_set_tool(Operator):
                             # Store volume object reference
                             patient.volume_objects[series.series_instance_uid] = vol_obj.name
                             
-                            # Calculate measurements
-                            self._calculate_volumes_for_series(context, series)
+                            # Calculate measurements for 4D (uses first time point)
+                            from .measurements.tissue_volumes import calculate_and_store_tissue_volumes
+                            calculate_and_store_tissue_volumes(context, series)
                             
-                            log.info(f"Auto-visualized series {series.series_number}")
+                            log.info(f"Auto-visualized 4D series {series.series_number}")
+                        else:
+                            # Regular series
+                            # Build absolute file paths
+                            file_paths = [os.path.join(patient.dicom_root_path, rel_path) 
+                                         for rel_path in series.file_paths]
+                            
+                            # Load slices
+                            from .dicom_io import load_slice
+                            slices = []
+                            for path in file_paths:
+                                slice_data = load_slice(path)
+                                if slice_data is not None:
+                                    slices.append(slice_data)
+                            
+                            if len(slices) >= 2:
+                                # Create volume
+                                from .volume import create_volume
+                                vol_obj = create_volume(slices, series_number=series.series_number)
+                                
+                                # Update series state
+                                series.is_loaded = True
+                                series.is_visible = True
+                                
+                                # Store volume object reference
+                                patient.volume_objects[series.series_instance_uid] = vol_obj.name
+                                
+                                # Calculate measurements
+                                from .measurements.tissue_volumes import calculate_and_store_tissue_volumes
+                                calculate_and_store_tissue_volumes(context, series)
+                                
+                                log.info(f"Auto-visualized series {series.series_number}")
                     
                     # Save updated patient data
                     context.scene.dicom_patient_data = patient.to_json()
@@ -1076,41 +1114,6 @@ class IMPORT_OT_dicom_set_tool(Operator):
                 log.debug(f"Removed material: {mat_name}")
         
         log.info("Cleared all DICOM volumes and meshes")
-    
-    def _calculate_volumes_for_series(self, context, series):
-        """Calculate tissue volumes for a series"""
-        from .measurements import calculate_tissue_volume
-        import json
-        
-        scn = context.scene
-        if not scn.dicom_volume_data_path or not os.path.exists(scn.dicom_volume_data_path):
-            return
-        
-        try:
-            vol_array = np.load(scn.dicom_volume_data_path)
-            spacing = json.loads(scn.dicom_volume_spacing)
-            pixel_spacing = (spacing[1], spacing[0])
-            slice_thickness = spacing[2]
-            
-            # Calculate all tissue volumes and store in series (dynamic from preset)
-            from .properties import get_tissue_thresholds_from_preset
-            thresholds = get_tissue_thresholds_from_preset(scn.dicom_active_material_preset)
-            
-            # Clear previous measurements
-            series.tissue_volumes = {}
-            
-            # Calculate volume for each tissue defined in preset
-            for tissue_name, tissue_range in thresholds.items():
-                volume_ml = calculate_tissue_volume(
-                    vol_array,
-                    tissue_range.get('min', 0),
-                    tissue_range.get('max', 0),
-                    pixel_spacing, slice_thickness
-                )
-                if volume_ml > 0:
-                    series.tissue_volumes[tissue_name] = volume_ml
-        except Exception as e:
-            log.error(f"Volume calculation error: {e}")
     
     def _calculate_centering_transform(self, context, patient):
         """Calculate the transform needed to center volumes at origin and create debug Empty"""
@@ -1403,7 +1406,7 @@ class IMPORT_OT_dicom_calculate_volume(Operator):
     tissue_type: StringProperty()  # 'fat', 'fluid', 'soft'
     
     def execute(self, context):
-        from .measurements import calculate_tissue_volume
+        from .measurements.tissue_volumes import calculate_tissue_volume
         import json
         
         scn = context.scene
@@ -1512,6 +1515,59 @@ class IMPORT_OT_dicom_reload_patient(Operator):
             return {'CANCELLED'}
 
 
+class IMPORT_OT_dicom_bake_bone_mesh(Operator):
+    """Convert geometry nodes bone mesh to real mesh"""
+    bl_idname = "import.dicom_bake_bone_mesh"
+    bl_label = "Bake Bone Meshes"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    def execute(self, context):
+        # Find all bone objects with geometry nodes
+        bone_objects = []
+        for obj in bpy.data.objects:
+            if 'Bone' in obj.name:
+                for mod in obj.modifiers:
+                    if mod.type == 'NODES':
+                        bone_objects.append(obj)
+                        break
+        
+        if not bone_objects:
+            self.report({'WARNING'}, "No bone objects with geometry nodes found")
+            return {'CANCELLED'}
+        
+        # Deselect all
+        bpy.ops.object.select_all(action='DESELECT')
+        
+        # Select bone objects
+        for obj in bone_objects:
+            obj.select_set(True)
+        
+        # Set one as active
+        context.view_layer.objects.active = bone_objects[0]
+        
+        # Call Blender's built-in operator
+        try:
+            result = bpy.ops.object.visual_geometry_to_objects()
+            
+            if result == {'FINISHED'}:
+                self.report({'INFO'}, f"Baked {len(bone_objects)} bone mesh(es)")
+                log.info(f"Successfully baked {len(bone_objects)} bone objects")
+                return {'FINISHED'}
+            else:
+                self.report({'WARNING'}, "Bake operation did not complete successfully")
+                return {'CANCELLED'}
+                
+        except AttributeError:
+            # Operator doesn't exist in this Blender version
+            self.report({'ERROR'}, "Visual Geometry to Objects operator not available in this Blender version")
+            log.error("bpy.ops.object.visual_geometry_to_objects not found")
+            return {'CANCELLED'}
+        except Exception as e:
+            self.report({'ERROR'}, f"Failed to bake: {e}")
+            log.error(f"Bake error: {e}")
+            return {'CANCELLED'}
+
+
 classes = (
     IMPORT_OT_dicom_load_patient,
     IMPORT_OT_dicom_visualize_series,
@@ -1521,6 +1577,7 @@ classes = (
     IMPORT_OT_dicom_toggle_display_mode,
     IMPORT_OT_dicom_calculate_volume,
     IMPORT_OT_dicom_reload_patient,
+    IMPORT_OT_dicom_bake_bone_mesh,
     IMPORT_OT_dicom_scan,
     IMPORT_OT_dicom_preview,
     IMPORT_OT_dicom_preview_popup,
@@ -1528,7 +1585,9 @@ classes = (
     IMPORT_OT_dicom_preview_slice,
     IMAGE_OT_dicom_set_cursor_3d,
     IMAGE_OT_dicom_scroll,
+    IMAGE_OT_dicom_scroll_time_point,
     IMPORT_OT_dicom_import_series,
+    DICOM_OT_test_compute_backend,
 )
 
 addon_keymaps = []

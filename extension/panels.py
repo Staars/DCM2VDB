@@ -127,7 +127,8 @@ class VIEW3D_PT_dicom_patient(Panel):
                     
                     # Preview button (always available)
                     action_row = box.row(align=True)
-                    op = action_row.operator(IMPORT_OT_dicom_preview_series.bl_idname, text="Preview", icon='IMAGE_DATA')
+                    preview_text = "Preview 4D" if series.is_4d else "Preview"
+                    op = action_row.operator(IMPORT_OT_dicom_preview_series.bl_idname, text=preview_text, icon='IMAGE_DATA')
                     op.series_uid = series.series_instance_uid
                     
                     box.separator()
@@ -168,6 +169,13 @@ class VIEW3D_PT_dicom_patient(Panel):
             row = center_box.row()
             row.prop(scn, "center_volume_at_origin", text="Center at Origin")
             
+            # Material preset selection
+            preset_box = box.box()
+            preset_box.label(text="Material Preset", icon='MATERIAL')
+            
+            row = preset_box.row()
+            row.prop(scn, "dicom_material_preset", text="")
+            
             box.separator()
             
             # Visualization tool (available)
@@ -176,16 +184,6 @@ class VIEW3D_PT_dicom_patient(Panel):
             button_text = f"Visualization {modality}"
             op = row.operator("import.dicom_set_tool", text=button_text, icon='SHADING_RENDERED')
             op.tool = 'VISUALIZATION'
-            
-            # Future tools (disabled)
-            box.label(text="Coming Soon:", icon='TIME')
-            col = box.column(align=True)
-            col.enabled = False
-            col.operator("import.dicom_set_tool", text="Measurement", icon='DRIVER_DISTANCE')
-            col.operator("import.dicom_set_tool", text="Segmentation", icon='MOD_MASK')
-            col.operator("import.dicom_set_tool", text="Registration", icon='ORIENTATION_GIMBAL')
-            col.operator("import.dicom_set_tool", text="Export", icon='EXPORT')
-            col.operator("import.dicom_set_tool", text="Analysis", icon='GRAPH')
         else:
             # Show active tool and change button
             box = layout.box()
@@ -229,6 +227,15 @@ class VIEW3D_PT_dicom_visualization(Panel):
         
         if volume_material:
             layout.separator()
+            
+            # Material Preset Selector
+            preset_box = layout.box()
+            preset_box.label(text="Material Preset:", icon='MATERIAL')
+            row = preset_box.row()
+            row.prop(scn, "dicom_material_preset", text="")
+            
+            layout.separator()
+            
             box = layout.box()
             box.label(text="Tissue Opacity:", icon='SHADING_RENDERED')
             
@@ -267,7 +274,7 @@ class VIEW3D_PT_dicom_visualization(Panel):
                             col.label(text=f"Series {series.series_number}:", icon='RENDERLAYERS')
                             
                             # Load preset to get tissue labels
-                            from .material_presets import load_preset
+                            from .presets.material_presets import load_preset
                             preset = load_preset(scn.dicom_active_material_preset)
                             
                             # Create tissue name -> label mapping
@@ -287,6 +294,26 @@ class VIEW3D_PT_dicom_visualization(Panel):
                     col = box.column(align=True)
                     col.label(text="No measurements available", icon='INFO')
             
+            layout.separator()
+        
+        # Bake bone meshes button
+        # Check if there are any bone objects with geometry nodes
+        has_bone_objects = False
+        for obj in bpy.data.objects:
+            if 'Bone' in obj.name:
+                for mod in obj.modifiers:
+                    if mod.type == 'NODES':
+                        has_bone_objects = True
+                        break
+                if has_bone_objects:
+                    break
+        
+        if has_bone_objects:
+            box = layout.box()
+            box.label(text="Mesh Tools:", icon='MESH_DATA')
+            row = box.row()
+            row.scale_y = 1.2
+            row.operator("import.dicom_bake_bone_mesh", text="Bake Bone Meshes", icon='MESH_CUBE')
             layout.separator()
         
         # Tool-specific actions for each series (ONLY SELECTED SERIES)
@@ -336,14 +363,44 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
             series = series_list[scn.dicom_preview_series_index]
             layout.label(text=f"Series: {series.get('description', 'No Description')}", icon='IMAGE_DATA')
         
+        # 4D Time Point Navigation (if applicable)
+        if scn.dicom_preview_is_4d:
+            from .operators import IMAGE_OT_dicom_scroll_time_point
+            
+            box = layout.box()
+            box.label(text=f"Time Point: {scn.dicom_preview_time_point_index + 1} / {scn.dicom_preview_time_point_count}", icon='TIME')
+            
+            row = box.row(align=True)
+            op = row.operator(IMAGE_OT_dicom_scroll_time_point.bl_idname, text="First", icon='REW')
+            op.direction = -scn.dicom_preview_time_point_index
+            
+            op = row.operator(IMAGE_OT_dicom_scroll_time_point.bl_idname, text="", icon='TRIA_LEFT')
+            op.direction = -1
+            
+            op = row.operator(IMAGE_OT_dicom_scroll_time_point.bl_idname, text="", icon='TRIA_RIGHT')
+            op.direction = 1
+            
+            op = row.operator(IMAGE_OT_dicom_scroll_time_point.bl_idname, text="Last", icon='FF')
+            op.direction = scn.dicom_preview_time_point_count - scn.dicom_preview_time_point_index - 1
+        
         # Slice info
         box = layout.box()
-        box.label(text=f"Slice: {scn.dicom_preview_slice_index + 1} / {scn.dicom_preview_slice_count}")
+        if scn.dicom_preview_is_4d:
+            # Show slice within current time point
+            slices_per_tp = scn.dicom_preview_slices_per_time_point
+            current_tp = scn.dicom_preview_time_point_index
+            slice_in_tp = scn.dicom_preview_slice_index - (current_tp * slices_per_tp) + 1
+            box.label(text=f"Slice (in time point): {slice_in_tp} / {slices_per_tp}")
+        else:
+            box.label(text=f"Slice: {scn.dicom_preview_slice_index + 1} / {scn.dicom_preview_slice_count}")
         
         # Navigation buttons
         row = box.row(align=True)
         op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="First", icon='REW')
-        op.slice_index = 0
+        if scn.dicom_preview_is_4d:
+            op.slice_index = scn.dicom_preview_time_point_index * scn.dicom_preview_slices_per_time_point
+        else:
+            op.slice_index = 0
         
         op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="", icon='TRIA_LEFT')
         op.slice_index = max(0, scn.dicom_preview_slice_index - 1)
@@ -352,10 +409,13 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
         op.slice_index = min(scn.dicom_preview_slice_count - 1, scn.dicom_preview_slice_index + 1)
         
         op = row.operator(IMPORT_OT_dicom_preview_slice.bl_idname, text="Last", icon='FF')
-        op.slice_index = scn.dicom_preview_slice_count - 1
+        if scn.dicom_preview_is_4d:
+            op.slice_index = (scn.dicom_preview_time_point_index + 1) * scn.dicom_preview_slices_per_time_point - 1
+        else:
+            op.slice_index = scn.dicom_preview_slice_count - 1
         
         # Quick jump
-        if scn.dicom_preview_slice_count > 20:
+        if scn.dicom_preview_slice_count > 20 and not scn.dicom_preview_is_4d:
             box.label(text="Quick Jump:")
             row = box.row(align=True)
             step = max(1, scn.dicom_preview_slice_count // 10)
@@ -462,10 +522,62 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
                         col.label(text=f"  Row: [{orientation[0]:.2f}, {orientation[1]:.2f}, {orientation[2]:.2f}]")
                         col.label(text=f"  Col: [{orientation[3]:.2f}, {orientation[4]:.2f}, {orientation[5]:.2f}]")
 
+
+class VIEW3D_PT_dicom_debug(Panel):
+    """Debug and performance testing panel"""
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "DICOM"
+    bl_label = "Debug & Performance"
+    bl_context = "objectmode"
+    bl_options = {'DEFAULT_CLOSED'}
+    
+    def draw(self, context):
+        layout = self.layout
+        
+        # Compute backend info
+        try:
+            from .compute_backend import backend_name, get_backend_info
+            
+            box = layout.box()
+            box.label(text="Compute Backend", icon='SYSTEM')
+            
+            info = get_backend_info()
+            box.label(text=f"Backend: {info['name'].upper()}")
+            
+            if info['gpu_accelerated']:
+                box.label(text=f"Device: {info['device']}", icon='CHECKMARK')
+                
+                # Show MLX-specific info
+                if info['name'] == 'mlx':
+                    if 'architecture' in info:
+                        box.label(text=f"Architecture: {info['architecture']}")
+                    if 'total_memory' in info:
+                        box.label(text=f"Memory: {info['total_memory']}")
+                    if 'recommended_memory' in info:
+                        box.label(text=f"Recommended: {info['recommended_memory']}")
+                
+                # Show CuPy-specific info
+                elif info['name'] == 'cupy':
+                    if 'memory_total' in info:
+                        box.label(text=f"GPU Memory: {info['memory_free']} / {info['memory_total']}")
+                    if 'compute_capability' in info:
+                        box.label(text=f"Compute: {info['compute_capability']}")
+            else:
+                box.label(text="CPU only (no GPU)", icon='INFO')
+            
+            # Test button
+            box.operator("dicom.test_compute_backend", text="Run Performance Test", icon='PLAY')
+            
+        except Exception as e:
+            layout.label(text=f"Backend error: {e}", icon='ERROR')
+
+
 classes = (
     VIEW3D_PT_dicom_patient,
     VIEW3D_PT_dicom_visualization,
     IMAGE_EDITOR_PT_dicom_controls,
+    VIEW3D_PT_dicom_debug,
 )
 
 def register():

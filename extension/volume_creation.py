@@ -12,17 +12,215 @@ from .constants import *
 from .volume_utils import clean_old_volumes, save_debug_slice
 from .materials import create_volume_material
 from .geometry_nodes import create_tissue_mesh_geonodes
+from .dicom_io import load_slice
 
 # Get logger for this extension
 log = SimpleLogger()
 
-def create_volume(slices, series_number=1):
+def _create_4d_volume_sequence(time_points_data, series_number):
+    """Create a 4D volume sequence with numbered VDB files"""
+    import openvdb as vdb
+    
+    log.info(f"Creating 4D volume sequence with {len(time_points_data)} time points...")
+    
+    temp_dir = tempfile.gettempdir()
+    vdb_paths = []
+    first_slices = None  # Store first time point slices for positioning
+    first_vol_raw = None  # Store first time point raw volume for measurements
+    first_spacing = None  # Store spacing for measurements
+    
+    # Create VDB file for each time point
+    for frame_idx, tp_data in enumerate(time_points_data, start=1):
+        log.info(f"  Processing time point {frame_idx}/{len(time_points_data)}...")
+        
+        # 1. Load slices for this time point (SAME as regular volume)
+        slices = []
+        for file_path in tp_data['files']:
+            slice_data = load_slice(file_path)
+            if slice_data:
+                slices.append(slice_data)
+        
+        if len(slices) < MIN_SLICES_REQUIRED:
+            log.warning(f"  Skipping time point {frame_idx}: not enough slices")
+            continue
+        
+        # 2. Parse ImageOrientationPatient and ImagePositionPatient (SAME as regular volume)
+        for slice_data in slices:
+            orientation = slice_data["ds"].ImageOrientationPatient
+            position = slice_data["ds"].ImagePositionPatient
+            row_cosines = np.array(orientation[:3], dtype=np.float32)
+            col_cosines = np.array(orientation[3:], dtype=np.float32)
+            normal_vector = np.cross(row_cosines, col_cosines)
+            slice_data["normal_vector"] = normal_vector
+            slice_data["position"] = np.array(position, dtype=np.float32)
+        
+        # 3. Sort slices (SAME as regular volume)
+        slices = sorted(slices, key=lambda s: np.dot(s["position"], s["normal_vector"]))
+        
+        # Check dimensions match
+        first_shape = slices[0]["pixels"].shape
+        slices = [s for s in slices if s["pixels"].shape == first_shape]
+        
+        # 4. Stack into 3D volume (SAME as regular volume)
+        vol = np.stack([s["pixels"] for s in slices])
+        depth, height, width = vol.shape
+        
+        # 5. Get spacing (SAME as regular volume)
+        pixel_spacing = slices[0]["pixel_spacing"]
+        slice_thickness = slices[0]["slice_thickness"]
+        
+        # Validate slice thickness
+        if not slice_thickness or slice_thickness <= 0:
+            slice_thickness = max(pixel_spacing)
+        
+        spacing = [pixel_spacing[1], pixel_spacing[0], slice_thickness]  # [X, Y, Z] in mm
+        
+        # Store first time point data for measurements
+        if frame_idx == 1:
+            first_vol_raw = vol.copy()  # Keep raw HU values
+            first_spacing = spacing
+            first_slices = slices
+        
+        # 6. Normalize to 0-1 range (SAME as regular volume)
+        vol_float = vol.astype(np.float32)
+        vol_normalized = (vol_float - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
+        vol_normalized = np.clip(vol_normalized, 0.0, 1.0)
+        
+        log.debug(f"  Frame {frame_idx}: {width}x{height}x{depth}, spacing: {spacing} mm")
+        
+        # 7. Create VDB grid with proper transform (SAME as regular volume)
+        grid = vdb.FloatGrid()
+        grid.copyFromArray(vol_normalized)
+        grid.name = "density"
+        
+        # Convert spacing to meters
+        spacing_meters = [s * MM_TO_METERS for s in spacing]  # [X, Y, Z] in meters
+        
+        # Transform matrix (SAME as regular volume)
+        transform_matrix = [
+            [spacing_meters[2], 0, 0, 0],  # First array axis = Z (slice thickness)
+            [0, spacing_meters[1], 0, 0],  # Second array axis = Y (row spacing)
+            [0, 0, spacing_meters[0], 0],  # Third array axis = X (column spacing)
+            [0, 0, 0, 1]
+        ]
+        grid.transform = vdb.createLinearTransform(transform_matrix)
+        
+        # 8. Save numbered VDB file
+        vdb_path = os.path.join(temp_dir, f"ct_s{series_number}_{frame_idx:03d}.vdb")
+        vdb.write(vdb_path, grids=[grid])
+        vdb_paths.append(vdb_path)
+        
+        log.info(f"  Created {os.path.basename(vdb_path)}")
+        
+        # Store first time point slices for positioning
+        if frame_idx == 1:
+            first_slices = slices
+    
+    if not vdb_paths:
+        raise ValueError("No valid time points created")
+    
+    # 9. Load first VDB into Blender as sequence
+    bpy.ops.object.volume_import(filepath=vdb_paths[0], files=[{"name": os.path.basename(vdb_paths[0])}])
+    
+    # Get the imported volume object
+    vol_obj = bpy.context.active_object
+    modality = first_slices[0]["ds"].Modality if hasattr(first_slices[0]["ds"], "Modality") else "CT"
+    vol_obj.name = f"{modality}_Volume_S{series_number}_4D"
+    
+    # 10. Configure as sequence
+    vol_obj.data.is_sequence = True
+    vol_obj.data.frame_duration = len(vdb_paths)
+    vol_obj.data.frame_start = 1
+    vol_obj.data.sequence_mode = 'REPEAT'
+    
+    # 11. Apply positioning (SAME as regular volume)
+    first_position = first_slices[0]["position"]  # Already in mm
+    
+    blender_location = (
+        -first_position[0] * MM_TO_METERS,  # X: negate for 270° rotation
+        -first_position[1] * MM_TO_METERS,  # Y: anterior → back
+        first_position[2] * MM_TO_METERS    # Z: superior
+    )
+    
+    vol_obj.location = blender_location
+    
+    # 12. Apply rotation (SAME as regular volume)
+    vol_obj.rotation_euler = (0, math.radians(270), 0)
+    vol_obj.scale = (1.0, 1.0, 1.0)
+    
+    log.debug(f"4D Volume positioned at: {vol_obj.location}")
+    log.debug(f"4D Volume rotation: {vol_obj.rotation_euler}")
+    
+    # 13. Apply material with user-selected preset
+    modality = first_slices[0]["ds"].Modality if hasattr(first_slices[0]["ds"], "Modality") else "CT"
+    series_desc = first_slices[0]["ds"].SeriesDescription if hasattr(first_slices[0]["ds"], "SeriesDescription") else ""
+    vol_min = first_vol_raw.min()
+    vol_max = first_vol_raw.max()
+    
+    # Use the user-selected preset from the dropdown
+    preset_name = bpy.context.scene.dicom_material_preset
+    create_volume_material(vol_obj, vol_min, vol_max, preset_name=preset_name, modality=modality, series_description=series_desc)
+    
+    # Update tissue alphas to match the detected preset (SAME as regular volume)
+    from .presets.material_presets import get_preset_for_modality
+    from .properties import initialize_tissue_alphas
+    
+    detected_preset = get_preset_for_modality(modality, series_desc)
+    
+    # Only auto-set preset if user hasn't manually selected one
+    # Check if current preset matches the modality (if it's a CT preset for CT data, user chose it)
+    current_preset = bpy.context.scene.dicom_material_preset
+    current_is_ct = current_preset.startswith('ct_')
+    current_is_mri = current_preset.startswith('mri_')
+    modality_matches = (modality == 'CT' and current_is_ct) or (modality == 'MR' and current_is_mri)
+    
+    if not modality_matches:
+        # Modality doesn't match, so auto-detect
+        log.info(f"Auto-detected preset: {detected_preset} (was: {current_preset})")
+        bpy.context.scene.dicom_material_preset = detected_preset
+        bpy.context.scene.dicom_active_material_preset = detected_preset
+    else:
+        # User has selected a preset for this modality, keep it
+        log.info(f"Using user-selected preset: {current_preset}")
+        detected_preset = current_preset
+        bpy.context.scene.dicom_active_material_preset = detected_preset
+    
+    # Initialize tissue alphas for the preset
+    if len(bpy.context.scene.dicom_tissue_alphas) == 0:
+        initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
+    
+    # 14. Save first time point data for measurements (SAME as regular volume)
+    unique_id = str(uuid.uuid4())[:8]
+    numpy_path = os.path.join(temp_dir, f"ct_volume_{unique_id}.npy")
+    np.save(numpy_path, first_vol_raw)
+    log.info(f"Saved first time point data for measurements: {numpy_path}")
+    
+    import json
+    
+    # Store in scene for measurements
+    bpy.context.scene.dicom_volume_data_path = numpy_path
+    bpy.context.scene.dicom_volume_spacing = json.dumps(first_spacing)  # [X, Y, Z] in mm
+    bpy.context.scene.dicom_volume_unique_id = unique_id
+    bpy.context.scene.dicom_volume_hu_min = first_vol_raw.min()
+    bpy.context.scene.dicom_volume_hu_max = first_vol_raw.max()
+    
+    log.info(f"4D volume sequence created: {len(vdb_paths)} frames")
+    log.info("=" * 60)
+    
+    return vol_obj
+
+def create_volume(slices, series_number=1, time_points_data=None):
     """Create a volume object from DICOM slices with proper Hounsfield units.
     
     Args:
-        slices: List of DICOM slice data
+        slices: List of DICOM slice data (for single volume or first time point)
         series_number: Series number for unique object naming
+        time_points_data: List of dicts with 'files' for each time point (for 4D sequences)
     """
+    # Handle 4D sequence
+    if time_points_data is not None:
+        return _create_4d_volume_sequence(time_points_data, series_number)
+    
     # DON'T clean temp dir here - it would delete VDB files from other series!
     # Cleanup only happens on explicit reload
     
@@ -69,21 +267,49 @@ def create_volume(slices, series_number=1):
         
         if method == 'GAUSSIAN_3D':
             # 3D Gaussian filter - processes entire volume at once
-            from scipy import ndimage
-            log.info("Applying 3D Gaussian filter...")
-            vol = ndimage.gaussian_filter(vol, sigma=strength)
-            log.info("3D Gaussian filter complete!")
+            from .compute_backend import backend_name
+            
+            if backend_name != 'numpy':
+                # Use GPU-accelerated 3D Gaussian filter
+                log.info(f"Applying 3D Gaussian filter with {backend_name.upper()} GPU acceleration...")
+                from .filters_gpu import gaussian_filter_3d_gpu
+                vol = gaussian_filter_3d_gpu(vol, sigma=strength)
+                log.info("GPU 3D Gaussian filter complete!")
+            else:
+                # Fallback to scipy for CPU
+                from scipy import ndimage
+                log.info("Applying 3D Gaussian filter (CPU)...")
+                vol = ndimage.gaussian_filter(vol, sigma=strength)
+                log.info("3D Gaussian filter complete!")
         else:
-            # 2D slice-by-slice filtering (existing methods)
-            from .volume_utils import denoise_slice_scipy
+            # 2D slice-by-slice filtering
+            from .compute_backend import backend_name
             
-            from .constants import DENOISING_PROGRESS_LOG_INTERVAL
-            
-            log.info(f"Applying 2D slice-by-slice filtering ({method})...")
-            for i in range(depth):
-                vol[i] = denoise_slice_scipy(vol[i], method=method, strength=strength)
+            if backend_name != 'numpy':
+                # Use GPU-accelerated filters
+                log.info(f"Using {backend_name.upper()} GPU-accelerated filtering ({method})...")
+                from .filters_gpu import denoise_slice_gpu
                 
-                # Log progress every DENOISING_PROGRESS_LOG_INTERVAL%
+                from .constants import DENOISING_PROGRESS_LOG_INTERVAL
+                
+                for i in range(depth):
+                    vol[i] = denoise_slice_gpu(vol[i], method=method, strength=strength)
+                    
+                    # Log progress every DENOISING_PROGRESS_LOG_INTERVAL%
+                    if (i + 1) % max(1, depth // (100 // DENOISING_PROGRESS_LOG_INTERVAL)) == 0:
+                        progress = int((i + 1) / depth * 100)
+                        log.info(f"  Series {series_number} GPU denoising: {progress}% ({i+1}/{depth} slices)")
+            else:
+                # Fallback to scipy for CPU
+                from .volume_utils import denoise_slice_scipy
+                
+                from .constants import DENOISING_PROGRESS_LOG_INTERVAL
+                
+                log.info(f"Applying 2D slice-by-slice filtering ({method})...")
+                for i in range(depth):
+                    vol[i] = denoise_slice_scipy(vol[i], method=method, strength=strength)
+                    
+                    # Log progress every DENOISING_PROGRESS_LOG_INTERVAL%
                 if (i + 1) % max(1, depth // DENOISING_PROGRESS_LOG_INTERVAL) == 0:
                     progress = (i + 1) / depth
                     log.info(f"  Series {series_number} denoising: {progress*100:.0f}% ({i+1}/{depth} slices)")
@@ -185,11 +411,45 @@ def create_volume(slices, series_number=1):
         
         # Normalize to 0-1 range using FIXED HU range for consistency across all volumes
         # This ensures same tissue types always map to same normalized values
-        vol_float = vol.astype(np.float32)
-        vol_normalized = (vol_float - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
         
-        # Clamp to 0-1 range (in case data exceeds standard range)
-        vol_normalized = np.clip(vol_normalized, 0.0, 1.0)
+        # GPU-accelerated normalization
+        from .compute_backend import backend_name
+        
+        vol_float = vol.astype(np.float32)
+        
+        # Use GPU if available
+        if backend_name != 'numpy':
+            log.info(f"Using {backend_name.upper()} GPU acceleration for volume normalization")
+            from .compute_backend import xp, to_numpy, from_numpy
+            
+            try:
+                # Transfer to GPU
+                vol_gpu = from_numpy(vol_float)
+                
+                # Normalize on GPU
+                vol_normalized_gpu = (vol_gpu - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
+                
+                # Clamp to 0-1 range
+                vol_normalized_gpu = xp.clip(vol_normalized_gpu, 0.0, 1.0)
+                
+                # Force evaluation for MLX
+                if backend_name == 'mlx':
+                    import mlx.core as mx
+                    mx.eval(vol_normalized_gpu)
+                
+                # Transfer back to CPU
+                vol_normalized = to_numpy(vol_normalized_gpu)
+                log.debug(f"GPU normalization complete")
+                
+            except Exception as e:
+                log.warning(f"GPU normalization failed, falling back to CPU: {e}")
+                # Fallback to CPU
+                vol_normalized = (vol_float - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
+                vol_normalized = np.clip(vol_normalized, 0.0, 1.0)
+        else:
+            # CPU path when GPU not available
+            vol_normalized = (vol_float - HU_MIN_FIXED) / (HU_MAX_FIXED - HU_MIN_FIXED)
+            vol_normalized = np.clip(vol_normalized, 0.0, 1.0)
         
         log.debug(f"Original numpy array shape (Z,Y,X): {vol_float.shape}")
         log.debug(f"This means: {depth} slices of {height}x{width} images")
@@ -286,27 +546,44 @@ def create_volume(slices, series_number=1):
     expected_dims = (width * spacing_meters[0], height * spacing_meters[1], depth * spacing_meters[2])
     log.debug(f"Expected dimensions (meters): {expected_dims}")
     
-    # Create volume material with modality detection
+    # Create volume material with user-selected preset
     series_desc = slices[0]["ds"].SeriesDescription if hasattr(slices[0]["ds"], "SeriesDescription") else ""
-    create_volume_material(vol_obj, vol_min, vol_max, modality=modality, series_description=series_desc)
+    
+    # Use the user-selected preset from the dropdown
+    preset_name = bpy.context.scene.dicom_material_preset
+    create_volume_material(vol_obj, vol_min, vol_max, preset_name=preset_name, modality=modality, series_description=series_desc)
     
     # Update tissue alphas to match the detected preset
-    from .material_presets import get_preset_for_modality
+    from .presets.material_presets import get_preset_for_modality
     from .properties import initialize_tissue_alphas
     
     detected_preset = get_preset_for_modality(modality, series_desc)
-    current_preset = bpy.context.scene.dicom_active_material_preset
     
-    if detected_preset != current_preset or len(bpy.context.scene.dicom_tissue_alphas) == 0:
-        log.info(f"Updating tissue alphas from '{current_preset}' to '{detected_preset}'")
-        initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
+    # Only auto-set preset if user hasn't manually selected one
+    # Check if current preset matches the modality (if it's a CT preset for CT data, user chose it)
+    current_preset = bpy.context.scene.dicom_material_preset
+    current_is_ct = current_preset.startswith('ct_')
+    current_is_mri = current_preset.startswith('mri_')
+    modality_matches = (modality == 'CT' and current_is_ct) or (modality == 'MR' and current_is_mri)
+    
+    if not modality_matches:
+        # Modality doesn't match, so auto-detect
+        log.info(f"Auto-detected preset: {detected_preset} (was: {current_preset})")
+        bpy.context.scene.dicom_material_preset = detected_preset
+        bpy.context.scene.dicom_active_material_preset = detected_preset
     else:
-        log.debug(f"Tissue alphas already match preset '{detected_preset}'")
+        # User has selected a preset for this modality, keep it
+        log.info(f"Using user-selected preset: {current_preset}")
+        detected_preset = current_preset
+        bpy.context.scene.dicom_active_material_preset = detected_preset
+    
+    # Initialize tissue alphas for the preset
+    if len(bpy.context.scene.dicom_tissue_alphas) == 0:
+        initialize_tissue_alphas(bpy.context, detected_preset, silent=True)
     
     # Create meshes based on preset definitions
-    from .material_presets import load_preset, get_preset_for_modality
-    preset_name = get_preset_for_modality(modality, series_desc)
-    preset = load_preset(preset_name)
+    from .presets.material_presets import load_preset
+    preset = load_preset(detected_preset)
     
     if preset and preset.meshes:
         log.info("=" * 60)

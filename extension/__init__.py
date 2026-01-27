@@ -18,70 +18,21 @@ from .utils import SimpleLogger
 # Get logger for this extension
 log = SimpleLogger()
 
-# Install bundled wheels if packages are not available
-def ensure_package(package_name, import_name=None):
-    """Install package from bundled wheel if not already available"""
-    if import_name is None:
-        import_name = package_name
-    
-    try:
-        __import__(import_name)
-        return True
-    except ImportError:
-        pass
-    
-    # Get the wheels directory path
-    addon_dir = os.path.dirname(os.path.abspath(__file__))
-    wheels_dir = os.path.join(addon_dir, "wheels")
-    
-    if not os.path.exists(wheels_dir):
-        log.warning(f"Wheels directory not found: {wheels_dir}")
-        return False
-    
-    # Find the wheel for this package
-    wheel_files = [f for f in os.listdir(wheels_dir) if f.startswith(package_name) and f.endswith(".whl")]
-    
-    if not wheel_files:
-        log.warning(f"No {package_name} wheel found in wheels directory")
-        return False
-    
-    wheel_path = os.path.join(wheels_dir, wheel_files[0])
-    log.info(f"Installing {package_name} from: {wheel_path}")
-    
-    # Use Blender's Python to install the wheel
-    python_exe = sys.executable
-    
-    try:
-        subprocess.check_call([python_exe, "-m", "pip", "install", "--no-deps", wheel_path])
-        log.info(f"Successfully installed {package_name}")
-        
-        # Try importing again
-        __import__(import_name)
-        return True
-    except subprocess.CalledProcessError as e:
-        log.error(f"Failed to install {package_name}: {e}")
-        return False
-    except ImportError:
-        log.error(f"{package_name} installed but import still failed")
-        return False
+# Check for package availability
+PYDICOM_AVAILABLE = False
+SCIPY_AVAILABLE = False
 
-# Install required packages on module load
-PYDICOM_AVAILABLE = ensure_package("pydicom")
-SCIPY_AVAILABLE = ensure_package("scipy")
+try:
+    from pydicom import dcmread
+    PYDICOM_AVAILABLE = True
+except ImportError:
+    log.error("pydicom not available")
 
-# Check for package availability after installation attempt
-if PYDICOM_AVAILABLE:
-    try:
-        from pydicom import dcmread
-    except ImportError:
-        PYDICOM_AVAILABLE = False
-
-if SCIPY_AVAILABLE:
-    try:
-        from scipy import ndimage
-    except ImportError:
-        SCIPY_AVAILABLE = False
-        log.warning("scipy installed but import failed")
+try:
+    from scipy import ndimage
+    SCIPY_AVAILABLE = True
+except ImportError:
+    log.error("scipy not available")
 
 if "bpy" in locals():
     import importlib
@@ -107,10 +58,25 @@ if "bpy" in locals():
         importlib.reload(volume)
     if "preview" in locals():
         importlib.reload(preview)
+    if "measurements" in locals():
+        importlib.reload(measurements)
 
 from . import properties
 from . import operators
 from . import panels
+from . import measurements
+
+# Initialize compute backend and log info
+try:
+    from . import compute_backend
+    backend_info = compute_backend.get_backend_info()
+    log.info(f"Compute backend: {backend_info['name']}")
+    if backend_info['gpu_accelerated']:
+        log.info(f"  Device: {backend_info['device']}")
+    else:
+        log.info(f"  Running on CPU (install MLX or CuPy for GPU acceleration)")
+except Exception as e:
+    log.warning(f"Failed to initialize compute backend: {e}")
 
 # Keymap for mouse wheel scrolling in Image Editor
 addon_keymaps = []
@@ -120,6 +86,7 @@ def register():
     properties.register()
     operators.register()
     panels.register()
+    measurements.register()
     
     # Add keymap for scrolling
     wm = bpy.context.window_manager
@@ -144,6 +111,7 @@ def unregister():
     addon_keymaps.clear()
     
     # Unregister all classes
+    measurements.unregister()
     panels.unregister()
     operators.unregister()
     properties.unregister()
