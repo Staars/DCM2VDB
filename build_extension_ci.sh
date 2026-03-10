@@ -41,6 +41,50 @@ echo "============================================================"
 echo "Blender Extension Builder (CI)"
 echo "============================================================"
 
+# ── Download wheels ─────────────────────────────────────────────────────────
+echo ""
+echo "--- Downloading Python Wheels ---"
+
+WHEELS_DIR="$EXTENSION_DIR/wheels"
+mkdir -p "$WHEELS_DIR"
+
+PIP_COMMON="--no-deps --only-binary=:all: -d $WHEELS_DIR"
+
+# Pure-python wheels
+pip download pydicom==3.0.1 $PIP_COMMON
+
+# Platform-specific wheels (cp311 = Blender's Python)
+for pkg_platform in \
+    "pillow==12.0.0 win_amd64" \
+    "pillow==12.0.0 manylinux2014_x86_64" \
+    "pillow==12.0.0 macosx_11_0_arm64" \
+    "scipy==1.16.3 macosx_14_0_arm64" \
+    "scipy==1.16.3 manylinux2014_x86_64" \
+    "scipy==1.16.3 win_amd64" \
+    "mlx==0.30.3 macosx_14_0_arm64" \
+    "mlx-metal==0.30.3 macosx_14_0_arm64" \
+    "cupy-cuda12x==13.6.0 win_amd64" \
+    "onnxruntime==1.23.2 macosx_13_0_arm64" \
+    "onnxruntime==1.23.2 win_amd64" \
+    "onnxruntime==1.23.2 manylinux_2_28_x86_64" \
+; do
+    pkg="${pkg_platform% *}"
+    plat="${pkg_platform#* }"
+    echo "  Downloading $pkg for $plat..."
+    pip download "$pkg" $PIP_COMMON \
+        --python-version 311 --implementation cp --abi cp311 \
+        --platform "$plat" 2>/dev/null \
+    || pip download "$pkg" $PIP_COMMON \
+        --python-version 3 --implementation py --abi none \
+        --platform "$plat" 2>/dev/null \
+    || echo "    ⚠️  Could not download $pkg for $plat (may be pure-python, already fetched)"
+done
+
+echo ""
+echo "Downloaded wheels:"
+ls -lh "$WHEELS_DIR"/*.whl 2>/dev/null || true
+echo "✓ Wheels ready"
+
 # ── Verify models ───────────────────────────────────────────────────────────
 echo ""
 echo "--- Verifying Models ---"
