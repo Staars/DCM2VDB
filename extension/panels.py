@@ -1,6 +1,7 @@
 """UI panel definitions"""
 
 import bpy
+import numpy as np
 from .utils import SimpleLogger
 from bpy.types import Panel
 from pathlib import Path
@@ -426,6 +427,46 @@ class IMAGE_EDITOR_PT_dicom_controls(Panel):
         layout.separator()
         layout.label(text="Use mouse wheel to scroll", icon='MOUSE_MOVE')
         
+        # MedSAM Segmentation section
+        layout.separator()
+        box = layout.box()
+        box.label(text="AI Segmentation", icon='OUTLINER_OB_LIGHTPROBE')
+        
+        # Show prompt info for current slice
+        import json
+        try:
+            from .ml.annotation_prompts import get_prompts_for_slice
+            prompt_set = get_prompts_for_slice(context, scn.dicom_preview_slice_index)
+            if prompt_set:
+                n_points = len(prompt_set.get("points", []))
+                n_boxes = len(prompt_set.get("boxes", []))
+                box.label(text=f"Prompts: {n_points} points, {n_boxes} boxes")
+            else:
+                box.label(text="No prompts on this slice")
+        except:
+            box.label(text="No prompts on this slice")
+        
+        box.label(text="Use Annotate tool to draw prompts", icon='GREASEPENCIL')
+        box.label(text="Double-click to add point prompts", icon='MOUSE_LMB')
+        
+        # Show mask stack info
+        mask_path = scn.get("medsam_mask_stack_path", "")
+        if mask_path:
+            import os
+            if os.path.exists(mask_path):
+                try:
+                    data = np.load(mask_path)
+                    mask_stack = data['masks']
+                    n_slices_with_mask = int((mask_stack.sum(axis=(1, 2)) > 0).sum())
+                    box.label(text=f"Segmented: {n_slices_with_mask} slices", icon='CHECKMARK')
+                except:
+                    pass
+        
+        row = box.row(align=True)
+        row.scale_y = 1.3
+        row.operator("image.medsam_segment", text="Segment", icon='MOD_MASK')
+        row.operator("image.medsam_clear_points", text="Clear", icon='X')
+        
         # Spatial Information (collapsible)
         if series:
             layout.separator()
@@ -537,7 +578,7 @@ class VIEW3D_PT_dicom_debug(Panel):
         
         # Compute backend info
         try:
-            from .compute_backend import backend_name, get_backend_info
+            from .compute.backend import backend_name, get_backend_info
             
             box = layout.box()
             box.label(text="Compute Backend", icon='SYSTEM')

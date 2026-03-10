@@ -97,7 +97,7 @@ def update_tissue_alpha_dynamic(self, context):
     
 
     # Load the active preset to get tissue order
-    from .material_presets import load_preset
+    from .presets.material_presets import load_preset
     preset_name = context.scene.dicom_material_preset
     if not preset_name:
         log.debug("No material preset selected")
@@ -339,6 +339,18 @@ def register_scene_props():
         description="Stored centering offset (X,Y,Z) in meters as JSON string",
         default=""
     )
+    
+    # MedSAM segmentation properties
+    bpy.types.Scene.medsam_points = StringProperty(
+        name="MedSAM Points",
+        description="Stored point prompts for segmentation (JSON)",
+        default="[]"
+    )
+    bpy.types.Scene.medsam_last_mask = StringProperty(
+        name="MedSAM Last Mask",
+        description="Last segmentation mask (base64 encoded)",
+        default=""
+    )
 
     
 
@@ -438,6 +450,8 @@ def unregister_scene_props():
     del bpy.types.Scene.denoise_method
     del bpy.types.Scene.center_volume_at_origin
     del bpy.types.Scene.dicom_centering_offset
+    del bpy.types.Scene.medsam_points
+    del bpy.types.Scene.medsam_last_mask
 
 classes = (
     DicomSeriesProperty,

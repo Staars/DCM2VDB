@@ -267,12 +267,12 @@ def create_volume(slices, series_number=1, time_points_data=None):
         
         if method == 'GAUSSIAN_3D':
             # 3D Gaussian filter - processes entire volume at once
-            from .compute_backend import backend_name
+            from .compute.backend import backend_name
             
             if backend_name != 'numpy':
                 # Use GPU-accelerated 3D Gaussian filter
                 log.info(f"Applying 3D Gaussian filter with {backend_name.upper()} GPU acceleration...")
-                from .filters_gpu import gaussian_filter_3d_gpu
+                from .compute.filters import gaussian_filter_3d_gpu
                 vol = gaussian_filter_3d_gpu(vol, sigma=strength)
                 log.info("GPU 3D Gaussian filter complete!")
             else:
@@ -283,12 +283,12 @@ def create_volume(slices, series_number=1, time_points_data=None):
                 log.info("3D Gaussian filter complete!")
         else:
             # 2D slice-by-slice filtering
-            from .compute_backend import backend_name
+            from .compute.backend import backend_name
             
             if backend_name != 'numpy':
                 # Use GPU-accelerated filters
                 log.info(f"Using {backend_name.upper()} GPU-accelerated filtering ({method})...")
-                from .filters_gpu import denoise_slice_gpu
+                from .compute.filters import denoise_slice_gpu
                 
                 from .constants import DENOISING_PROGRESS_LOG_INTERVAL
                 
@@ -413,14 +413,14 @@ def create_volume(slices, series_number=1, time_points_data=None):
         # This ensures same tissue types always map to same normalized values
         
         # GPU-accelerated normalization
-        from .compute_backend import backend_name
+        from .compute.backend import backend_name
         
         vol_float = vol.astype(np.float32)
         
         # Use GPU if available
         if backend_name != 'numpy':
             log.info(f"Using {backend_name.upper()} GPU acceleration for volume normalization")
-            from .compute_backend import xp, to_numpy, from_numpy
+            from .compute.backend import xp, to_numpy, from_numpy
             
             try:
                 # Transfer to GPU

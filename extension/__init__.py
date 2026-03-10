@@ -54,21 +54,29 @@ if "bpy" in locals():
         importlib.reload(geometry_nodes)
     if "volume_creation" in locals():
         importlib.reload(volume_creation)
-    if "volume" in locals():
-        importlib.reload(volume)
     if "preview" in locals():
         importlib.reload(preview)
     if "measurements" in locals():
         importlib.reload(measurements)
+    if "ml" in locals():
+        importlib.reload(ml)
 
 from . import properties
 from . import operators
 from . import panels
 from . import measurements
 
+# Import ML module (segmentation operators)
+try:
+    from .ml import segmentation_ops
+    ML_AVAILABLE = True
+except ImportError as e:
+    log.warning(f"ML segmentation not available: {e}")
+    ML_AVAILABLE = False
+
 # Initialize compute backend and log info
 try:
-    from . import compute_backend
+    from .compute import backend as compute_backend
     backend_info = compute_backend.get_backend_info()
     log.info(f"Compute backend: {backend_info['name']}")
     if backend_info['gpu_accelerated']:
@@ -87,6 +95,10 @@ def register():
     operators.register()
     panels.register()
     measurements.register()
+    
+    # Register ML segmentation operators if available
+    if ML_AVAILABLE:
+        segmentation_ops.register()
     
     # Add keymap for scrolling
     wm = bpy.context.window_manager
@@ -111,6 +123,8 @@ def unregister():
     addon_keymaps.clear()
     
     # Unregister all classes
+    if ML_AVAILABLE:
+        segmentation_ops.unregister()
     measurements.unregister()
     panels.unregister()
     operators.unregister()

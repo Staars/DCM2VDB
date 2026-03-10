@@ -68,6 +68,10 @@ class SeriesInfo:
     # Dict mapping tissue name to volume in mL: {'fat': 123.45, 'liquid': 67.89, ...}
     tissue_volumes: dict = field(default_factory=dict)
     
+    # Segmentation prompts per slice (from annotation strokes)
+    # Format: { "12": {"points": [{"x":..,"y":..,"label":1}], "boxes": [{"x0":..,"y0":..,"x1":..,"y1":..}]} }
+    segmentation_prompts: dict = field(default_factory=dict)
+    
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
