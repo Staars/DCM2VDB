@@ -29,10 +29,11 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install "mlx[cpu]" numpy pillow safetensors onnx onnxruntime huggingface_hub
 
-      - name: Clone SAM2 repository
+      - name: Clone and install SAM2
         run: |
           mkdir -p .cache
           git clone https://github.com/facebookresearch/segment-anything-2.git .cache/sam2_repo
+          pip install -e .cache/sam2_repo
 
       - name: Convert MedSAM2 models (MLX + ONNX)
         run: python convert_medsam2_ci.py

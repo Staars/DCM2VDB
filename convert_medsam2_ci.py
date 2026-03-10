@@ -399,8 +399,12 @@ def main():
     print("STEP 3: Converting to MLX + Config")
     print("=" * 60)
     mlx_dir, cfg = convert_to_mlx(state_dict)
+    if mlx_dir is None:
+        print("ERROR: MLX conversion failed"); sys.exit(1)
 
-    convert_to_onnx(ckpt_path)
+    onnx_dir = convert_to_onnx(ckpt_path)
+    if onnx_dir is None:
+        print("ERROR: ONNX conversion failed"); sys.exit(1)
 
     print("\n" + "=" * 60)
     print("ALL DONE")
