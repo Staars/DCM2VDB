@@ -3,6 +3,7 @@ Model manager - handles loading and platform detection
 """
 
 import sys
+import os
 import platform
 from pathlib import Path
 
@@ -14,6 +15,32 @@ def get_model_path():
     models_dir = extension_dir  # ml directory itself contains the model folders
     
     return models_dir
+
+
+def _setup_onnx_dll_dirs():
+    """Register DLL search directories for ONNX Runtime on Windows.
+    
+    Python 3.8+ on Windows restricts DLL search paths. We add the
+    onnxruntime package directory so its bundled DLLs can be found,
+    and also add any VC++ runtime directories that may be present
+    in site-packages.
+    """
+    if platform.system() != 'Windows':
+        return
+    
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec('onnxruntime')
+        if spec and spec.submodule_search_locations:
+            for loc in spec.submodule_search_locations:
+                ort_dir = Path(loc)
+                # onnxruntime ships DLLs in capi/ subdirectory
+                capi_dir = ort_dir / 'capi'
+                for d in [ort_dir, capi_dir]:
+                    if d.is_dir():
+                        os.add_dll_directory(str(d))
+    except Exception:
+        pass
 
 
 def detect_platform():
@@ -43,14 +70,19 @@ def detect_platform():
     
     # Windows/Linux -> ONNX
     else:
+        _setup_onnx_dll_dirs()
         try:
             import onnxruntime
             return "onnx"
-        except ImportError:
-            raise RuntimeError(
-                "ONNX Runtime not available. "
-                "Make sure onnxruntime is installed."
-            )
+        except ImportError as e:
+            msg = f"ONNX Runtime not available: {e}"
+            if system == 'Windows' and 'DLL' in str(e):
+                msg += (
+                    "\n\nThis is usually caused by missing Visual C++ "
+                    "Redistributable. Install it from:\n"
+                    "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+                )
+            raise RuntimeError(msg)
 
 
 def get_predictor():

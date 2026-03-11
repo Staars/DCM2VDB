@@ -5,8 +5,25 @@ This module wraps the ONNX encoder/decoder models for efficient
 inference on Windows and Linux platforms.
 """
 
+import os
+import sys
+import platform
 import numpy as np
 from pathlib import Path
+
+# On Windows, register DLL search directories before importing onnxruntime.
+# Python 3.8+ restricts DLL search to explicit directories only.
+if platform.system() == 'Windows':
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec('onnxruntime')
+        if spec and spec.submodule_search_locations:
+            for loc in spec.submodule_search_locations:
+                for sub in [loc, os.path.join(loc, 'capi')]:
+                    if os.path.isdir(sub):
+                        os.add_dll_directory(sub)
+    except Exception:
+        pass
 
 
 class ONNXPredictor:
