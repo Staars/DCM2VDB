@@ -204,7 +204,25 @@ fi
 
 echo "✓ Platform-specific extensions built"
 
-# Step 6: Move to dist directory
+# Step 6: Remove wrong models from each platform zip
+# --split-platforms only filters wheels, not arbitrary files like model weights
+print_step "Removing Unnecessary Models from Platform Zips"
+
+# macOS ARM64: remove ONNX models (uses MLX)
+echo "macOS: removing ONNX models..."
+zip -d "$MACOS_ZIP" "ml/medsam2_onnx/*" || true
+
+# Windows x64: remove MLX models (uses ONNX)
+echo "Windows: removing MLX models..."
+zip -d "$WINDOWS_ZIP" "ml/medsam2_mlx/*" || true
+
+# Linux x64: remove MLX models (uses ONNX)
+echo "Linux: removing MLX models..."
+zip -d "$LINUX_ZIP" "ml/medsam2_mlx/*" || true
+
+echo "✓ Platform-specific models cleaned"
+
+# Step 7: Move to dist directory
 print_step "Organizing Distribution"
 
 rm -rf "$DIST_DIR"
@@ -228,14 +246,14 @@ echo "✓ macOS bundle:   $MACOS_SIZE"
 echo "✓ Windows bundle: $WINDOWS_SIZE"
 echo "✓ Linux bundle:   $LINUX_SIZE"
 
-# Step 7: Cleanup
+# Step 8: Cleanup
 print_step "Cleanup"
 
 # Models stay in extension/ml/ (gitignored, but needed for local builds)
 # They are embedded in the platform-specific zips
 echo "✓ Build artifacts cleaned (models remain in extension/ml/ for next build)"
 
-# Step 8: Summary
+# Step 9: Summary
 print_header "BUILD COMPLETE"
 
 echo ""

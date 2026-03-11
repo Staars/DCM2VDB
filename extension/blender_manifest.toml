@@ -2,32 +2,38 @@ schema_version = "0.0.1"
 id = "DCM2VDB"
 version = "0.0.1"
 name = "DICOM to VDB"
-tagline = "just tests"
+tagline = "Import CT/MR DICOM volumes with ML segmentation"
 maintainer = "Your Name <you@example.com>"
 type = "add-on"
-license = ["GPL-3.0-or-later"]
+license = ["SPDX:GPL-3.0-or-later"]
 
-# Blender version compatibility
 blender_version_min = "5.0.0"
 
-platforms = ["windows-x64", "macos-arm64","linux-x64"]
+platforms = ["windows-x64", "macos-arm64", "linux-x64"]
 
 # Python wheels (dependencies)
+# Blender's --split-platforms filters wheels by filename platform tags:
+#   - py3-none-any → included in ALL platform zips
+#   - cp311-cp311-win_amd64 → Windows only
+#   - cp311-cp311-macosx_*_arm64 → macOS ARM64 only
+#   - cp311-cp311-manylinux* → Linux only
 wheels = [
+    # Pure Python (all platforms)
     "./wheels/pydicom-3.0.1-py3-none-any.whl",
+    # Pillow (per-platform)
     "./wheels/pillow-12.0.0-cp311-cp311-win_amd64.whl",
     "./wheels/pillow-12.0.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
     "./wheels/pillow-12.0.0-cp311-cp311-macosx_11_0_arm64.whl",
-    "./wheels/scipy-1.16.3-cp311-cp311-macosx_14_0_arm64.whl",
-    "./wheels/scipy-1.16.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    # SciPy (per-platform)
     "./wheels/scipy-1.16.3-cp311-cp311-win_amd64.whl",
-    # GPU acceleration - MLX for macOS ARM64
+    "./wheels/scipy-1.16.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "./wheels/scipy-1.16.3-cp311-cp311-macosx_14_0_arm64.whl",
+    # MLX - macOS ARM64 only (Metal GPU acceleration + ML inference)
     "./wheels/mlx-0.30.3-cp311-cp311-macosx_14_0_arm64.whl",
     "./wheels/mlx_metal-0.30.3-py3-none-macosx_14_0_arm64.whl",
-    # GPU acceleration - CuPy for NVIDIA CUDA (Windows only, Linux wheel exceeds GitHub 100 MB limit)
+    # CuPy - Windows only (NVIDIA CUDA GPU acceleration; Linux wheel exceeds 100 MB)
     "./wheels/cupy_cuda12x-13.6.0-cp311-cp311-win_amd64.whl",
-    # ML inference - MLX for macOS, ONNX Runtime for Windows/Linux
-    "./wheels/onnxruntime-1.23.2-cp311-cp311-macosx_13_0_arm64.whl",
+    # ONNX Runtime - Windows/Linux only (ML inference)
     "./wheels/onnxruntime-1.23.2-cp311-cp311-win_amd64.whl",
     "./wheels/onnxruntime-1.23.2-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
 ]

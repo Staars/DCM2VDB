@@ -64,7 +64,6 @@ for pkg_platform in \
     "mlx==0.30.3 macosx_14_0_arm64" \
     "mlx-metal==0.30.3 macosx_14_0_arm64" \
     "cupy-cuda12x==13.6.0 win_amd64" \
-    "onnxruntime==1.23.2 macosx_13_0_arm64" \
     "onnxruntime==1.23.2 win_amd64" \
     "onnxruntime==1.23.2 manylinux_2_28_x86_64" \
 ; do
@@ -140,15 +139,15 @@ fi
 
 # macOS ARM64: remove ONNX models (uses MLX)
 echo "macOS: removing ONNX models..."
-zip -d "$MACOS_ZIP" "*/ml/medsam2_onnx/*" || true
+zip -d "$MACOS_ZIP" "ml/medsam2_onnx/*" || true
 
 # Windows x64: remove MLX models (uses ONNX)
 echo "Windows: removing MLX models..."
-zip -d "$WINDOWS_ZIP" "*/ml/medsam2_mlx/*" || true
+zip -d "$WINDOWS_ZIP" "ml/medsam2_mlx/*" || true
 
 # Linux x64: remove MLX models (uses ONNX)
 echo "Linux: removing MLX models..."
-zip -d "$LINUX_ZIP" "*/ml/medsam2_mlx/*" || true
+zip -d "$LINUX_ZIP" "ml/medsam2_mlx/*" || true
 
 # ── Move to dist ────────────────────────────────────────────────────────────
 echo ""
