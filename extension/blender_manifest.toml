@@ -31,8 +31,8 @@ wheels = [
     # MLX - macOS ARM64 only (Metal GPU acceleration + ML inference)
     "./wheels/mlx-0.30.3-cp311-cp311-macosx_14_0_arm64.whl",
     "./wheels/mlx_metal-0.30.3-py3-none-macosx_14_0_arm64.whl",
-    # CuPy - Windows only (NVIDIA CUDA GPU acceleration; Linux wheel exceeds 100 MB)
-    "./wheels/cupy_cuda12x-13.6.0-cp311-cp311-win_amd64.whl",
+    # CuPy - Windows only (NVIDIA CUDA 13.x GPU acceleration)
+    "./wheels/cupy_cuda13x-14.0.1-cp311-cp311-win_amd64.whl",
     # ONNX Runtime - Windows/Linux only (ML inference)
     "./wheels/onnxruntime-1.23.2-cp311-cp311-win_amd64.whl",
     "./wheels/onnxruntime-1.23.2-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",

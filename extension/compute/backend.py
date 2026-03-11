@@ -51,16 +51,20 @@ def _detect_backend():
     if system in ['Windows', 'Linux']:
         try:
             import cupy as cp
-            # Test if CUDA is actually available
+            # Test if CUDA is actually available and functional
             try:
                 cp.cuda.Device(0).compute_capability
+                # Quick smoke test to catch driver/toolkit version mismatches
+                cp.array([1.0])
                 _backend = cp
                 _backend_name = 'cupy'
                 xp = cp
                 log.info(f"✓ Using CuPy backend (NVIDIA CUDA GPU acceleration)")
                 return
-            except cp.cuda.runtime.CUDARuntimeError:
-                log.warning("CuPy installed but no CUDA device found")
+            except cp.cuda.runtime.CUDARuntimeError as e:
+                log.warning(f"CuPy installed but no CUDA device found: {e}")
+            except Exception as e:
+                log.warning(f"CuPy CUDA init failed (driver/toolkit mismatch?): {e}")
         except ImportError:
             pass
     
