@@ -64,8 +64,8 @@ for pkg_platform in \
     "mlx==0.30.3 macosx_14_0_arm64" \
     "mlx-metal==0.30.3 macosx_14_0_arm64" \
     "cupy-cuda13x==14.0.1 win_amd64" \
-    "onnxruntime==1.23.2 win_amd64" \
-    "onnxruntime==1.23.2 manylinux_2_28_x86_64" \
+    "onnxruntime==1.20.1 win_amd64" \
+    "onnxruntime==1.20.1 manylinux_2_28_x86_64" \
 ; do
     pkg="${pkg_platform% *}"
     plat="${pkg_platform#* }"

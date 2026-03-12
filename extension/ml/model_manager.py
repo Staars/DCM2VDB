@@ -21,9 +21,7 @@ def _setup_onnx_dll_dirs():
     """Register DLL search directories for ONNX Runtime on Windows.
     
     Python 3.8+ on Windows restricts DLL search paths. We add the
-    onnxruntime package directory so its bundled DLLs can be found,
-    and also add any VC++ runtime directories that may be present
-    in site-packages.
+    onnxruntime package directory so its bundled DLLs can be found.
     """
     if platform.system() != 'Windows':
         return
@@ -41,6 +39,42 @@ def _setup_onnx_dll_dirs():
                         os.add_dll_directory(str(d))
     except Exception:
         pass
+
+
+def _diagnose_dll_error():
+    """Try to identify exactly which DLL is missing on Windows.
+    
+    Returns a diagnostic string with details about which VC++ runtime
+    DLLs are present/missing.
+    """
+    import ctypes
+    
+    lines = []
+    # Check the VC++ runtime DLLs that onnxruntime depends on
+    for dll_name in ['vcruntime140.dll', 'vcruntime140_1.dll',
+                     'msvcp140.dll', 'concrt140.dll']:
+        try:
+            ctypes.WinDLL(dll_name)
+            lines.append(f"  ✓ {dll_name} found")
+        except OSError:
+            lines.append(f"  ✗ {dll_name} MISSING")
+    
+    # Check where onnxruntime's own DLLs live
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec('onnxruntime')
+        if spec and spec.submodule_search_locations:
+            for loc in spec.submodule_search_locations:
+                capi = os.path.join(loc, 'capi')
+                if os.path.isdir(capi):
+                    dlls = [f for f in os.listdir(capi)
+                            if f.endswith(('.dll', '.pyd'))]
+                    lines.append(f"  onnxruntime capi dir: {capi}")
+                    lines.append(f"  DLLs found: {', '.join(dlls[:10])}")
+    except Exception:
+        pass
+    
+    return '\n'.join(lines)
 
 
 def detect_platform():
@@ -74,13 +108,16 @@ def detect_platform():
         try:
             import onnxruntime
             return "onnx"
-        except ImportError as e:
+        except (ImportError, OSError) as e:
             msg = f"ONNX Runtime not available: {e}"
-            if system == 'Windows' and 'DLL' in str(e):
+            if system == 'Windows':
+                diag = _diagnose_dll_error()
+                msg += f"\n\nDLL diagnostics:\n{diag}"
                 msg += (
                     "\n\nThis is usually caused by missing Visual C++ "
-                    "Redistributable. Install it from:\n"
-                    "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+                    "Redistributable (2015-2022).\n"
+                    "Download: https://aka.ms/vs/17/release/vc_redist.x64.exe\n"
+                    "Or ask IT to install 'Microsoft Visual C++ Redistributable'."
                 )
             raise RuntimeError(msg)
 
