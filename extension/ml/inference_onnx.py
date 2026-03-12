@@ -82,6 +82,9 @@ class ONNXPredictor:
         """
         Preprocess image for model input
         
+        Uses SAM2's normalization (pixel_mean/pixel_std on 0-255 range),
+        matching the preprocessing baked into the ONNX encoder export.
+        
         Args:
             image: numpy array (H, W, 3) or (H, W) in range [0, 255]
             
@@ -108,13 +111,10 @@ class ONNXPredictor:
             pil_img = pil_img.resize((1024, 1024), Image.BILINEAR)
             image = np.array(pil_img)
         
-        # Normalize to [0, 1]
-        image = image.astype(np.float32) / 255.0
-        
-        # Normalize with ImageNet stats
-        mean = np.array([0.485, 0.456, 0.406])
-        std = np.array([0.229, 0.224, 0.225])
-        image = (image - mean) / std
+        # SAM2 normalization: pixel_mean/pixel_std on 0-255 range
+        pixel_mean = np.array([123.675, 116.28, 103.53], dtype=np.float32)
+        pixel_std = np.array([58.395, 57.12, 57.375], dtype=np.float32)
+        image = (image.astype(np.float32) - pixel_mean) / pixel_std
         
         # Convert to CHW format
         image = np.transpose(image, (2, 0, 1))
@@ -193,23 +193,46 @@ class ONNXPredictor:
         
         Args:
             image: Input image (H, W, 3) or (H, W)
-            points: List of (x, y) coordinates or array (N, 2)
+            points: List of (x, y) coordinates or array (N, 2) in original image space
             labels: List of labels (1=positive, 0=negative) or None (all positive)
             
         Returns:
             dict: Segmentation results
-                'mask': Binary mask (H, W)
+                'mask': Binary mask (H, W) as uint8 at original resolution
                 'iou': IoU prediction score
         """
+        if not isinstance(image, np.ndarray):
+            image = np.array(image)
+        
+        # Handle grayscale
+        if image.ndim == 2:
+            image = np.stack([image] * 3, axis=-1)
+        
+        h_orig, w_orig = image.shape[:2]
+        
         # Convert points to array
         if not isinstance(points, np.ndarray):
-            points = np.array(points)
+            points = np.array(points, dtype=np.float32)
         
         # Default labels to all positive
         if labels is None:
-            labels = np.ones(len(points))
+            labels = np.ones(len(points), dtype=np.float32)
         elif not isinstance(labels, np.ndarray):
-            labels = np.array(labels)
+            labels = np.array(labels, dtype=np.float32)
+        
+        # Scale point coordinates from original image space to 1024x1024
+        scale_x = 1024.0 / w_orig
+        scale_y = 1024.0 / h_orig
+        scaled_points = points.copy().astype(np.float32)
+        scaled_points[:, 0] *= scale_x
+        scaled_points[:, 1] *= scale_y
+        
+        # Pad to 2 points (SAM2 prompt encoder expects at least 2).
+        # Second entry is a padding token: coords (0,0), label -1.
+        pad_coords = np.zeros((1, 2), dtype=np.float32)
+        pad_labels = np.array([-1], dtype=np.float32)
+        scaled_points = np.concatenate([scaled_points, pad_coords], axis=0)
+        labels = np.concatenate([labels, pad_labels], axis=0)
         
         # Preprocess image
         preprocessed = self.preprocess_image(image)
@@ -220,21 +243,27 @@ class ONNXPredictor:
         # Decode masks
         masks, iou_predictions = self.decode_masks(
             embeddings,
-            points,
+            scaled_points,
             labels
         )
         
         # Extract results
-        mask = masks[0, 0]  # (256, 256)
+        mask_logits = masks[0, 0]  # (256, 256)
         iou = float(iou_predictions[0, 0])
         
-        # Debug: log mask statistics
-        print(f"Mask stats - min: {mask.min():.4f}, max: {mask.max():.4f}, mean: {mask.mean():.4f}")
+        # Threshold at 0.0 (model outputs logits, positive = inside mask)
+        binary_mask = (mask_logits > 0.0).astype(np.uint8)
         
-        # Threshold mask at 0.0 (model outputs logits, positive = inside mask)
-        mask = (mask > 0.0).astype(np.float32)
+        # Resize mask back to original image dimensions
+        from PIL import Image
+        mask_resized = np.array(
+            Image.fromarray(binary_mask * 255).resize(
+                (w_orig, h_orig), Image.BILINEAR
+            )
+        )
+        mask_resized = (mask_resized > 127).astype(np.uint8)
         
         return {
-            'mask': mask,
+            'mask': mask_resized,
             'iou': iou,
         }
