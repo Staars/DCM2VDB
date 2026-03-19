@@ -7,36 +7,36 @@ maintainer = "Your Name <you@example.com>"
 type = "add-on"
 license = ["SPDX:GPL-3.0-or-later"]
 
-blender_version_min = "5.0.0"
+blender_version_min = "5.1.0"
 
 platforms = ["windows-x64", "macos-arm64", "linux-x64"]
 
 # Python wheels (dependencies)
 # Blender's --split-platforms filters wheels by filename platform tags:
 #   - py3-none-any → included in ALL platform zips
-#   - cp311-cp311-win_amd64 → Windows only
-#   - cp311-cp311-macosx_*_arm64 → macOS ARM64 only
-#   - cp311-cp311-manylinux* → Linux only
+#   - cp313-cp313-win_amd64 → Windows only
+#   - cp313-cp313-macosx_*_arm64 → macOS ARM64 only
+#   - cp313-cp313-manylinux* → Linux only
 wheels = [
     # Pure Python (all platforms)
     "./wheels/pydicom-3.0.1-py3-none-any.whl",
     # Pillow (per-platform)
-    "./wheels/pillow-12.0.0-cp311-cp311-win_amd64.whl",
-    "./wheels/pillow-12.0.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
-    "./wheels/pillow-12.0.0-cp311-cp311-macosx_11_0_arm64.whl",
+    "./wheels/pillow-12.0.0-cp313-cp313-win_amd64.whl",
+    "./wheels/pillow-12.0.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "./wheels/pillow-12.0.0-cp313-cp313-macosx_11_0_arm64.whl",
     # SciPy (per-platform)
-    "./wheels/scipy-1.16.3-cp311-cp311-win_amd64.whl",
-    "./wheels/scipy-1.16.3-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
-    "./wheels/scipy-1.16.3-cp311-cp311-macosx_14_0_arm64.whl",
+    "./wheels/scipy-1.16.3-cp313-cp313-win_amd64.whl",
+    "./wheels/scipy-1.16.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+    "./wheels/scipy-1.16.3-cp313-cp313-macosx_14_0_arm64.whl",
     # MLX - macOS ARM64 only (Metal GPU acceleration + ML inference)
-    "./wheels/mlx-0.30.3-cp311-cp311-macosx_14_0_arm64.whl",
+    "./wheels/mlx-0.30.3-cp313-cp313-macosx_14_0_arm64.whl",
     "./wheels/mlx_metal-0.30.3-py3-none-macosx_14_0_arm64.whl",
     # CuPy - Windows only (NVIDIA CUDA 13.x GPU acceleration)
-    "./wheels/cupy_cuda13x-14.0.1-cp311-cp311-win_amd64.whl",
+    "./wheels/cupy_cuda13x-14.0.1-cp313-cp313-win_amd64.whl",
     # ONNX Runtime - Windows/Linux only (ML inference)
     # Pinned to 1.20.1: versions >=1.21 require newer VC++ runtime than
     # Blender's embedded Python ships with, causing DLL load failures on
     # Windows machines without the latest Visual C++ Redistributable.
-    "./wheels/onnxruntime-1.20.1-cp311-cp311-win_amd64.whl",
-    "./wheels/onnxruntime-1.20.1-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+    "./wheels/onnxruntime-1.20.1-cp313-cp313-win_amd64.whl",
+    "./wheels/onnxruntime-1.20.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
 ]

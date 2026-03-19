@@ -53,7 +53,7 @@ PIP_COMMON="--no-deps --only-binary=:all: -d $WHEELS_DIR"
 # Pure-python wheels
 pip download pydicom==3.0.1 $PIP_COMMON
 
-# Platform-specific wheels (cp311 = Blender's Python)
+# Platform-specific wheels (cp313 = Blender's Python 3.13)
 for pkg_platform in \
     "pillow==12.0.0 win_amd64" \
     "pillow==12.0.0 manylinux2014_x86_64" \
@@ -71,7 +71,7 @@ for pkg_platform in \
     plat="${pkg_platform#* }"
     echo "  Downloading $pkg for $plat..."
     pip download "$pkg" $PIP_COMMON \
-        --python-version 311 --implementation cp --abi cp311 \
+        --python-version 313 --implementation cp --abi cp313 \
         --platform "$plat" 2>/dev/null \
     || pip download "$pkg" $PIP_COMMON \
         --python-version 3 --implementation py --abi none \
